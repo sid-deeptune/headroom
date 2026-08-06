@@ -7,6 +7,11 @@ The menu bar shows the single window closest to its limit — for example
 `Claude 5h 14%`. Click it for a breakdown of every window, grouped by provider,
 with a meter, a percentage, and the time until each window resets.
 
+<img src="screenshot.png" alt="Headroom dropdown showing Claude, Codex, and Kimi usage" width="420">
+
+Meters stay neutral below 60%, turn amber to 85%, and red above that. Colour is
+used only for urgency — providers are identified by their name and mark.
+
 ## What it reads
 
 | Provider | Endpoint | Windows |
