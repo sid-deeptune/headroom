@@ -94,9 +94,14 @@ struct WindowRow: View {
     }
 }
 
+func timeAgo(_ date: Date) -> String {
+    let minutes = Int(Date().timeIntervalSince(date)) / 60
+    return minutes < 1 ? "just now" : "\(minutes)m ago"
+}
+
 struct ProviderSection: View {
     let provider: Provider
-    let state: ProviderState
+    let snapshot: ProviderSnapshot
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -104,18 +109,23 @@ struct ProviderSection: View {
                 ProviderIcon(provider: provider)
                 Text(provider.rawValue)
                     .font(.caption.weight(.semibold))
+                Spacer()
+                if snapshot.isStale, let updatedAt = snapshot.updatedAt {
+                    Text("as of \(timeAgo(updatedAt))")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .foregroundStyle(.primary)
 
-            switch state {
-            case .loading:
-                Text("Loading…").font(.caption2).foregroundStyle(.tertiary)
-            case .unavailable(let reason):
-                Text(reason).font(.caption2).foregroundStyle(.tertiary)
-            case .ok(let windows) where windows.isEmpty:
-                Text("No active limits").font(.caption2).foregroundStyle(.tertiary)
-            case .ok(let windows):
-                ForEach(windows) { WindowRow(window: $0) }
+            if snapshot.windows.isEmpty {
+                // Only surface the error when there is nothing to fall back on.
+                Text(snapshot.error ?? (snapshot.hasData ? "No active limits" : "Loading…"))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(snapshot.windows) { WindowRow(window: $0) }
+                    .opacity(snapshot.isStale ? 0.45 : 1)
             }
         }
     }
@@ -128,7 +138,8 @@ struct MenuView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Provider.allCases, id: \.self) { provider in
-                ProviderSection(provider: provider, state: store.states[provider] ?? .loading)
+                ProviderSection(
+                    provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot())
             }
 
             Divider()
@@ -164,10 +175,5 @@ struct MenuView: View {
         .padding(14)
         .frame(width: 300)
         .onAppear { store.refreshIfStale() }
-    }
-
-    private func timeAgo(_ date: Date) -> String {
-        let minutes = Int(Date().timeIntervalSince(date)) / 60
-        return minutes < 1 ? "just now" : "\(minutes)m ago"
     }
 }

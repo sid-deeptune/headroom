@@ -36,15 +36,18 @@ struct Window: Identifiable {
     let resetsAt: Date?
 }
 
-enum ProviderState {
-    case loading
-    case ok([Window])
-    case unavailable(String)
+/// Last known state for one provider.
+///
+/// Windows survive a failed refresh: a transient error dims the existing data rather
+/// than destroying it, so a momentary 429 does not blank a provider that was fine a
+/// minute ago.
+struct ProviderSnapshot {
+    var windows: [Window] = []
+    var updatedAt: Date?
+    var error: String?
 
-    var windows: [Window] {
-        if case .ok(let w) = self { return w }
-        return []
-    }
+    var hasData: Bool { updatedAt != nil }
+    var isStale: Bool { error != nil && hasData }
 }
 
 protocol UsageProvider {

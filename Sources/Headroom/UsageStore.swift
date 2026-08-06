@@ -3,7 +3,7 @@ import SwiftUI
 
 @MainActor
 final class UsageStore: ObservableObject {
-    @Published private(set) var states: [Provider: ProviderState] = [:]
+    @Published private(set) var states: [Provider: ProviderSnapshot] = [:]
     @Published private(set) var updatedAt: Date?
 
     private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider(), KimiProvider()]
@@ -16,7 +16,7 @@ final class UsageStore: ObservableObject {
     private let menuOpenFloor: TimeInterval = 60
 
     init() {
-        for provider in Provider.allCases { states[provider] = .loading }
+        for provider in Provider.allCases { states[provider] = ProviderSnapshot() }
     }
 
     func start() {
@@ -44,21 +44,50 @@ final class UsageStore: ObservableObject {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        await withTaskGroup(of: (Provider, ProviderState).self) { group in
+        await withTaskGroup(of: (Provider, Result<[Window], Error>).self) { group in
             for provider in providers {
                 group.addTask {
                     do {
-                        return (provider.provider, .ok(try await provider.fetch()))
+                        return (provider.provider, .success(try await Self.fetchWithRetry(provider)))
                     } catch {
-                        return (provider.provider, .unavailable(error.localizedDescription))
+                        return (provider.provider, .failure(error))
                     }
                 }
             }
-            for await (provider, state) in group {
-                states[provider] = state
+            for await (provider, result) in group {
+                var snapshot = states[provider] ?? ProviderSnapshot()
+                switch result {
+                case .success(let windows):
+                    snapshot.windows = windows
+                    snapshot.updatedAt = Date()
+                    snapshot.error = nil
+                case .failure(let error):
+                    snapshot.error = error.localizedDescription
+                }
+                states[provider] = snapshot
             }
         }
         updatedAt = Date()
+    }
+
+    /// Retries rate limiting and server errors rather than waiting out the poll
+    /// interval — a 429 that clears in seconds should not blank a provider for
+    /// five minutes. Other failures (signed out, unreadable credentials) are
+    /// returned immediately, since retrying them would not help.
+    private static func fetchWithRetry(_ provider: UsageProvider) async throws -> [Window] {
+        for delay in [Duration.seconds(20), .seconds(60)] {
+            do {
+                return try await provider.fetch()
+            } catch let error where isTransient(error) {
+                try? await Task.sleep(for: delay)
+            }
+        }
+        return try await provider.fetch()
+    }
+
+    private static func isTransient(_ error: Error) -> Bool {
+        guard case UsageError.http(let code) = error else { return false }
+        return code == 429 || (500...599).contains(code)
     }
 
     var allWindows: [Window] {
