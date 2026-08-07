@@ -5,15 +5,18 @@ import SwiftUI
 final class UsageStore: ObservableObject {
     @Published private(set) var states: [Provider: ProviderSnapshot] = [:]
     @Published private(set) var updatedAt: Date?
+    @Published private(set) var isRefreshing = false
 
     private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider(), KimiProvider()]
-    private var isRefreshing = false
 
-    /// Anthropic's endpoint is server-side rate limited and Claude Code itself throttles
-    /// to one fetch per 5 minutes; the other two are cheaper but gain nothing from
-    /// faster polling, since the shortest window is 5 hours long.
-    private let pollInterval: TimeInterval = 300
-    private let menuOpenFloor: TimeInterval = 60
+    /// Anthropic's endpoint is server-side rate limited, and opening the menu used to
+    /// fetch as well, which is what pushed it into 429s. The shortest window we track
+    /// is 5 hours long, so a slow background poll loses nothing; the refresh button is
+    /// there for when you want a number right now.
+    private let pollInterval: TimeInterval = 900
+
+    /// Stops a burst of clicks from undoing the point of the slow poll.
+    private let manualCooldown: TimeInterval = 30
 
     init() {
         for provider in Provider.allCases { states[provider] = ProviderSnapshot() }
@@ -28,13 +31,12 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    /// Called when the menu opens, so the panel is current without hammering the APIs.
-    func refreshIfStale() {
-        guard let updatedAt, Date().timeIntervalSince(updatedAt) > menuOpenFloor else {
-            if updatedAt == nil { Task { await refresh() } }
-            return
-        }
-        Task { await refresh() }
+    /// Drives the refresh button's enabled state, so a click that would be dropped is
+    /// visibly unavailable instead of silently doing nothing.
+    var canRefresh: Bool {
+        guard !isRefreshing else { return false }
+        guard let updatedAt else { return true }
+        return Date().timeIntervalSince(updatedAt) >= manualCooldown
     }
 
     /// Providers are fetched concurrently and fail independently — one signed-out

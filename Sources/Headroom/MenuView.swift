@@ -94,14 +94,17 @@ struct WindowRow: View {
     }
 }
 
-func timeAgo(_ date: Date) -> String {
-    let minutes = Int(Date().timeIntervalSince(date)) / 60
+/// Takes `now` rather than reading the clock, so the panel's ticking timer is what
+/// drives these strings forward while the menu is open.
+func timeAgo(_ date: Date, now: Date) -> String {
+    let minutes = Int(now.timeIntervalSince(date)) / 60
     return minutes < 1 ? "just now" : "\(minutes)m ago"
 }
 
 struct ProviderSection: View {
     let provider: Provider
     let snapshot: ProviderSnapshot
+    let now: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -111,7 +114,7 @@ struct ProviderSection: View {
                     .font(.caption.weight(.semibold))
                 Spacer()
                 if snapshot.isStale, let updatedAt = snapshot.updatedAt {
-                    Text("as of \(timeAgo(updatedAt))")
+                    Text("as of \(timeAgo(updatedAt, now: now))")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -131,30 +134,62 @@ struct ProviderSection: View {
     }
 }
 
+/// The manual trigger. Background polling is deliberately slow, so this is the way to
+/// force a fetch — which means it has to look like a button and say when it is busy.
+/// `.borderless` gave neither, which is why it read as broken.
+struct RefreshButton: View {
+    @ObservedObject var store: UsageStore
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            Task { await store.refresh() }
+        } label: {
+            Group {
+                if store.isRefreshing {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .frame(width: 22, height: 22)
+            .background(
+                hovering ? Color.primary.opacity(0.12) : .clear,
+                in: RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
+        .disabled(!store.canRefresh)
+        .onHover { hovering = $0 && store.canRefresh }
+        .help(store.isRefreshing ? "Refreshing…" : store.canRefresh ? "Refresh now" : "Just refreshed")
+    }
+}
+
 struct MenuView: View {
     @ObservedObject var store: UsageStore
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+
+    /// Ticks only while the panel is on screen. Without it the ages freeze at whatever
+    /// they were when the menu opened, and the refresh button stays greyed out for the
+    /// cooldown with no sign that it will come back.
+    @State private var now = Date()
+    private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             ForEach(Provider.allCases, id: \.self) { provider in
                 ProviderSection(
-                    provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot())
+                    provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
+                    now: now)
             }
 
             Divider()
 
             HStack {
-                Text(store.updatedAt.map { "Updated \(timeAgo($0))" } ?? "Updating…")
+                Text(store.updatedAt.map { "Updated \(timeAgo($0, now: now))" } ?? "Updating…")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Button {
-                    Task { await store.refresh() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
+                RefreshButton(store: store)
             }
 
             HStack {
@@ -174,6 +209,6 @@ struct MenuView: View {
         }
         .padding(14)
         .frame(width: 300)
-        .onAppear { store.refreshIfStale() }
+        .onReceive(tick) { now = $0 }
     }
 }

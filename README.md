@@ -62,9 +62,10 @@ To see what the providers return without launching the UI:
 
 ## Polling
 
-Every 5 minutes, and on opening the menu if the data is more than 60 seconds old.
-Anthropic rate limits its endpoint, and the shortest window is 5 hours long, so
-faster polling gains nothing.
+Every 15 minutes. Opening the menu does not fetch — it shows the last result and
+its age. The refresh button forces one, then greys out for 30 seconds. Anthropic
+rate limits its endpoint and the shortest window is 5 hours, so faster polling
+gains nothing.
 
 ## Notes
 
