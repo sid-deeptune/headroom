@@ -67,6 +67,26 @@ its age. The refresh button forces one, then greys out for 30 seconds. Anthropic
 rate limits its endpoint and the shortest window is 5 hours, so faster polling
 gains nothing.
 
+## MCP server
+
+`mcp/server.mjs` exposes the same numbers to coding agents through a single MCP tool,
+`headroom_usage`, so an agent can check what quota is left before it fans work out
+across providers.
+
+It reads only the cache the app writes to `~/.cache/headroom/usage.json` after each
+poll — it never calls a provider endpoint, so an agent can call it as often as it
+likes without touching a rate limit. If the app is not running, the tool says so and
+reports the age of the last snapshot rather than pretending the numbers are current.
+
+Register it with Claude Code:
+
+```sh
+claude mcp add headroom --scope user -- node "$PWD/mcp/server.mjs"
+```
+
+Set `HEADROOM_USAGE_FILE` to point at a different cache file. Node 18 or newer; no
+dependencies.
+
 ## Notes
 
 - All three endpoints are undocumented and could change without warning. Every

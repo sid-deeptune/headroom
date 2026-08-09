@@ -69,7 +69,9 @@ final class UsageStore: ObservableObject {
                 states[provider] = snapshot
             }
         }
-        updatedAt = Date()
+        let now = Date()
+        updatedAt = now
+        UsageSnapshotFile.write(states: states, updatedAt: now)
     }
 
     /// Retries rate limiting and server errors rather than waiting out the poll
