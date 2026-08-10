@@ -13,18 +13,27 @@ enum Main {
     }
 }
 
+/// Borderless so the panel matches what `MenuBarExtra(.window)` drew. `NSPopover` was
+/// the obvious substitute but it is not the same UI: it adds an anchor arrow and drops
+/// the body below it, which moves the panel away from the menu bar.
+private final class MenuPanel: NSPanel {
+    override var canBecomeKey: Bool { true }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = UsageStore()
-    private let popover = NSPopover()
+    private let panel = MenuPanel(
+        contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+        backing: .buffered, defer: true)
     private var statusItem: StatusItemController?
     private var storeChanges: AnyCancellable?
+    private var outsideClicks: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
-        popover.behavior = .transient
-        popover.contentViewController = NSHostingController(rootView: MenuView(store: store))
+        buildPanel()
 
         let statusItem = StatusItemController { [weak self] item in
             guard let self, let button = item.button else { return }
@@ -66,13 +75,75 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func buildPanel() {
+        panel.isFloatingPanel = true
+        panel.level = .popUpMenu
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+
+        let background = NSVisualEffectView()
+        background.material = .menu
+        background.blendingMode = .behindWindow
+        background.state = .active
+        background.wantsLayer = true
+        background.layer?.cornerRadius = 10
+        background.layer?.masksToBounds = true
+
+        let content = NSHostingView(rootView: MenuView(store: store))
+        content.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: background.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: background.trailingAnchor),
+            content.topAnchor.constraint(equalTo: background.topAnchor),
+            content.bottomAnchor.constraint(equalTo: background.bottomAnchor),
+        ])
+        panel.contentView = background
+    }
+
     @objc private func togglePanel(_ sender: NSStatusBarButton) {
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+        panel.isVisible ? closePanel() : openPanel(under: sender)
+    }
+
+    private func openPanel(under button: NSStatusBarButton) {
+        guard let host = button.window, let screen = host.screen else { return }
+
+        let size = panel.contentView?.fittingSize ?? .zero
+        panel.setContentSize(size)
+
+        // Centred on the item but kept on screen, and hung directly off the menu bar —
+        // `visibleFrame` already excludes it, so its top edge is the anchor.
+        let anchor = host.convertToScreen(button.convert(button.bounds, to: nil))
+        let x = min(
+            max(anchor.midX - size.width / 2, screen.visibleFrame.minX + 8),
+            screen.visibleFrame.maxX - size.width - 8)
+        panel.setFrameOrigin(NSPoint(x: x, y: screen.visibleFrame.maxY - size.height))
+        panel.makeKeyAndOrderFront(nil)
+
+        // A click on the item itself has to fall through to the button's own action,
+        // or closing here and reopening there leaves the panel stuck open.
+        outsideClicks = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, !self.itemContainsPointer() else { return }
+                self.closePanel()
+            }
         }
+    }
+
+    private func itemContainsPointer() -> Bool {
+        guard let button = statusItem?.item?.button, let host = button.window else { return false }
+        return host.convertToScreen(button.convert(button.bounds, to: nil))
+            .contains(NSEvent.mouseLocation)
+    }
+
+    private func closePanel() {
+        panel.orderOut(nil)
+        if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
+        outsideClicks = nil
     }
 }
 
