@@ -38,6 +38,10 @@ struct ProviderIcon: View {
         }
     }
 
+    static func template(for provider: Provider) -> NSImage? {
+        templates[provider.iconName]
+    }
+
     /// Loaded once. `isTemplate` makes macOS ignore the artwork's own colour and
     /// tint it with the current foreground style, which is what keeps the marks
     /// legible in both light and dark mode.
@@ -46,8 +50,8 @@ struct ProviderIcon: View {
         for provider in Provider.allCases {
             if let image = NSImage(named: provider.iconName) {
                 image.isTemplate = true
-                // MenuBarExtra's label lays out from the NSImage's intrinsic size and
-                // ignores SwiftUI's .frame, so a 256pt source renders enormous there.
+                // The status bar button lays out from the NSImage's intrinsic size, so
+                // a 256pt source renders enormous there.
                 image.size = NSSize(width: 16, height: 16)
                 loaded[provider.iconName] = image
             }

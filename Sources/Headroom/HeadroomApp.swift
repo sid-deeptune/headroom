@@ -1,38 +1,77 @@
+import AppKit
+import Combine
 import SwiftUI
 
 @main
-struct HeadroomApp: App {
-    @StateObject private var store = UsageStore()
-
-    init() {
+enum Main {
+    static func main() {
         if CommandLine.arguments.contains("--probe") { probe() }
-    }
-
-    var body: some Scene {
-        MenuBarExtra {
-            MenuView(store: store)
-        } label: {
-            MenuBarLabel(store: store)
-                .task { store.start() }
-        }
-        .menuBarExtraStyle(.window)
+        let app = NSApplication.shared
+        let delegate = MainActor.assumeIsolated { AppDelegate() }
+        app.delegate = delegate
+        app.run()
     }
 }
 
-/// Names the window that is closest to biting. A bare percentage would be ambiguous
-/// across six windows — "23%" of what? — so the title always identifies which one.
-/// The brand mark carries the provider, which is why the name is not spelled out.
-struct MenuBarLabel: View {
-    @ObservedObject var store: UsageStore
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let store = UsageStore()
+    private let popover = NSPopover()
+    private var statusItem: StatusItemController?
+    private var storeChanges: AnyCancellable?
 
-    var body: some View {
-        if let window = store.tightest {
-            HStack(spacing: 4) {
-                ProviderIcon(provider: window.provider)
-                Text("\(window.provider.rawValue) \(window.label) \(Int(window.percent.rounded()))%")
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(rootView: MenuView(store: store))
+
+        let statusItem = StatusItemController { [weak self] item in
+            guard let self, let button = item.button else { return }
+            button.target = self
+            button.action = #selector(self.togglePanel)
+            self.draw(button)
+        }
+        statusItem.start()
+        self.statusItem = statusItem
+
+        // `objectWillChange` fires before the new value lands, so the redraw waits a
+        // runloop turn to read it.
+        storeChanges =
+            store.objectWillChange
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in
+                guard let button = self?.statusItem?.item?.button else { return }
+                self?.draw(button)
             }
+
+        store.start()
+    }
+
+    /// Names the window that is closest to biting. A bare percentage would be ambiguous
+    /// across six windows — "23%" of what? — so the title always identifies which one.
+    /// The brand mark carries the provider, which is why the name is not spelled out.
+    private func draw(_ button: NSStatusBarButton) {
+        if let window = store.tightest {
+            button.image = ProviderIcon.template(for: window.provider)
+            button.title =
+                " \(window.provider.rawValue) \(window.label) \(Int(window.percent.rounded()))%"
+            button.imagePosition = .imageLeading
         } else {
-            Image(systemName: "gauge.with.dots.needle.50percent")
+            button.image = NSImage(
+                systemSymbolName: "gauge.with.dots.needle.50percent",
+                accessibilityDescription: "Headroom")
+            button.title = ""
+            button.imagePosition = .imageOnly
+        }
+    }
+
+    @objc private func togglePanel(_ sender: NSStatusBarButton) {
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 }
