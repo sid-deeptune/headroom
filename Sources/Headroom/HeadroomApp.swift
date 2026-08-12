@@ -58,13 +58,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Names the window that is closest to biting. A bare percentage would be ambiguous
-    /// across six windows — "23%" of what? — so the title always identifies which one.
-    /// The brand mark carries the provider, which is why the name is not spelled out.
+    /// across six windows — "23%" of what? — so the title keeps the window's own label.
+    /// The brand mark carries the provider, which is why the name is not spelled out:
+    /// width is the scarce resource here. macOS drops a status item it cannot fit, and
+    /// gives no signal that it did, so the item that survives a full menu bar is the
+    /// narrow one.
     private func draw(_ button: NSStatusBarButton) {
         if let window = store.tightest {
             button.image = ProviderIcon.template(for: window.provider)
-            button.title =
-                " \(window.provider.rawValue) \(window.label) \(Int(window.percent.rounded()))%"
+            button.title = " \(window.label) \(Int(window.percent.rounded()))%"
             button.imagePosition = .imageLeading
         } else {
             button.image = NSImage(
