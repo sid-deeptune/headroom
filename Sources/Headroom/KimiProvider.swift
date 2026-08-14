@@ -3,8 +3,8 @@ import Foundation
 /// Kimi for Coding subscription usage. Undocumented endpoint (the vendor's own doc
 /// link 404s), so every field is treated as optional.
 ///
-/// Quantities come back as strings, and `used` is never returned — derive it from
-/// `limit - remaining`.
+/// Quantities come back as strings. An exhausted window returns `used` but omits
+/// `remaining`, so usage must support both response shapes.
 struct KimiProvider: UsageProvider {
     let provider = Provider.kimi
 
@@ -55,10 +55,12 @@ struct KimiProvider: UsageProvider {
     }
 
     private func percentUsed(_ detail: [String: Any]) -> Double? {
-        guard let limit = number(detail["limit"]), limit > 0,
-            let remaining = number(detail["remaining"])
-        else { return nil }
-        return (limit - remaining) / limit * 100
+        guard let limit = number(detail["limit"]), limit > 0 else { return nil }
+        if let remaining = number(detail["remaining"]) {
+            return (limit - remaining) / limit * 100
+        }
+        if let used = number(detail["used"]) { return used / limit * 100 }
+        return nil
     }
 
     private func secondsPerUnit(_ unit: String) -> Double {
