@@ -6,6 +6,8 @@ final class UsageStore: ObservableObject {
     @Published private(set) var states: [Provider: ProviderSnapshot] = [:]
     @Published private(set) var updatedAt: Date?
     @Published private(set) var isRefreshing = false
+    /// Today's local activity, keyed by the subscription it bills to.
+    @Published private(set) var spend: [Provider: Spend] = [:]
 
     private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider(), KimiProvider()]
 
@@ -18,6 +20,11 @@ final class UsageStore: ObservableObject {
     /// Stops a burst of clicks from undoing the point of the slow poll.
     private let manualCooldown: TimeInterval = 30
 
+    /// Spend comes off local files rather than an endpoint, so it can poll far more
+    /// often than the network. Not faster than this, though: a heavy day leaves tens of
+    /// megabytes of transcript to re-parse on every pass.
+    private let spendInterval: TimeInterval = 300
+
     init() {
         for provider in Provider.allCases { states[provider] = ProviderSnapshot() }
     }
@@ -29,6 +36,33 @@ final class UsageStore: ObservableObject {
                 try? await Task.sleep(for: .seconds(pollInterval))
             }
         }
+        Task {
+            await Pricing.refreshIfStale()
+            while !Task.isCancelled {
+                await readSpend()
+                try? await Task.sleep(for: .seconds(spendInterval))
+            }
+        }
+    }
+
+    /// Reads every tool's local log. Parsing runs off the main actor because the
+    /// transcripts can run to tens of megabytes.
+    private func readSpend() async {
+        let since = Calendar.current.startOfDay(for: Date())
+        let read = await Task.detached {
+            var total: [Provider: Spend] = [:]
+            for reader in spendReaders {
+                for (provider, spend) in reader.read(since: since) {
+                    total[provider] = (total[provider] ?? Spend()) + spend
+                }
+            }
+            return total
+        }.value
+
+        // Merged, not replaced: a reader that fails — an unreadable file, a database
+        // mid-write — returns nothing, and the last known figure is better than a row
+        // that vanishes.
+        for (provider, spend) in read { self.spend[provider] = spend }
     }
 
     /// Drives the refresh button's enabled state, so a click that would be dropped is

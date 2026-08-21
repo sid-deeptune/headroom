@@ -165,6 +165,17 @@ private func probe() -> Never {
                 print("\(provider.provider.rawValue): \(error.localizedDescription)")
             }
         }
+
+        let since = Calendar.current.startOfDay(for: Date())
+        for reader in spendReaders {
+            for (provider, spend) in reader.read(since: since) {
+                let counts = spend.counts
+                print(
+                    "\(provider.rawValue) today  in \(counts.input)  out \(counts.output)  "
+                        + "cache r \(counts.cacheRead) w \(counts.cacheWrite)  "
+                        + String(format: "$%.2f", spend.wouldCost))
+            }
+        }
         done.signal()
     }
     done.wait()

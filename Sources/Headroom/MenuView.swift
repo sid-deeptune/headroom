@@ -105,9 +105,81 @@ func timeAgo(_ date: Date, now: Date) -> String {
     return minutes < 1 ? "just now" : "\(minutes)m ago"
 }
 
+/// "812k", "4.1M" — a token count is only ever read for its order of magnitude.
+func formatTokens(_ tokens: Int) -> String {
+    if tokens >= 1_000_000 { return String(format: "%.1fM", Double(tokens) / 1_000_000) }
+    if tokens >= 1_000 { return "\(tokens / 1_000)k" }
+    return "\(tokens)"
+}
+
+/// Today's local activity for one provider, expandable.
+///
+/// Collapsed it shows input and output — the tokens that track real work — with the
+/// cache figure subdued beside them, because on any real day cache reads are two orders
+/// of magnitude larger and would otherwise be all you read. Clicking opens the split.
+///
+/// Deliberately says "would cost": every provider here is on a subscription, so this is
+/// the API value of the work, not money that was charged.
+struct SpendRow: View {
+    let spend: Spend
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Button {
+                expanded.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 7, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                    Text("today")
+                        .foregroundStyle(.tertiary)
+                    Text("\(formatTokens(spend.counts.input)) in · \(formatTokens(spend.counts.output)) out")
+                        .foregroundStyle(.secondary)
+                    if !expanded {
+                        Text("· \(formatTokens(spend.counts.cacheRead)) cached")
+                            .foregroundStyle(.quaternary)
+                    }
+                    Spacer()
+                    Text("$\(spend.wouldCost, specifier: "%.2f")")
+                        .foregroundStyle(.secondary)
+                }
+                .font(.caption2)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                breakdown("Input", spend.counts.input, subdued: false)
+                breakdown("Output", spend.counts.output, subdued: false)
+                breakdown("Cache read", spend.counts.cacheRead, subdued: true)
+                breakdown("Cache write", spend.counts.cacheWrite, subdued: true)
+                Text("would cost at API prices")
+                    .font(.caption2)
+                    .foregroundStyle(.quaternary)
+                    .padding(.leading, 11)
+            }
+        }
+    }
+
+    private func breakdown(_ label: String, _ tokens: Int, subdued: Bool) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(formatTokens(tokens))
+                .font(.system(.caption2, design: .monospaced))
+        }
+        .font(.caption2)
+        .foregroundStyle(subdued ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.secondary))
+        .padding(.leading, 11)
+    }
+}
+
 struct ProviderSection: View {
     let provider: Provider
     let snapshot: ProviderSnapshot
+    let spend: Spend?
     let now: Date
 
     var body: some View {
@@ -133,6 +205,10 @@ struct ProviderSection: View {
             } else {
                 ForEach(snapshot.windows) { WindowRow(window: $0) }
                     .opacity(snapshot.isStale ? 0.45 : 1)
+            }
+
+            if let spend, spend.counts.total > 0 {
+                SpendRow(spend: spend)
             }
         }
     }
@@ -183,7 +259,7 @@ struct MenuView: View {
             ForEach(Provider.allCases, id: \.self) { provider in
                 ProviderSection(
                     provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
-                    now: now)
+                    spend: store.spend[provider], now: now)
             }
 
             Divider()
