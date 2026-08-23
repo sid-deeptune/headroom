@@ -6,9 +6,13 @@ import Foundation
 /// This is the same data `ccusage` reads. Doing it here keeps the app free of Node and
 /// of a network fetch on first run.
 struct ClaudeLogReader: SpendReader {
+    let providers: [Provider] = [.claude]
+
     private let root = URL.homeDirectory.appending(path: ".claude/projects")
 
-    func read(since: Date) -> [Provider: Spend] {
+    func read(since: Date) -> SpendReading {
+        guard let files = recentFiles(since: since) else { return SpendReading(failed: true) }
+
         // Claude Code writes the same assistant message several times while it streams.
         // Every copy carries the final input and cache figures, but the early ones carry
         // a partial `output_tokens` — often 1. Anthropic bills the finished response, so
@@ -16,7 +20,7 @@ struct ClaudeLogReader: SpendReader {
         // output roughly threefold.
         var best: [String: (model: String, counts: TokenCounts)] = [:]
 
-        for file in recentFiles(since: since) {
+        for file in files {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             text.enumerateLines { line, _ in
                 guard let entry = decode(line),
@@ -56,17 +60,23 @@ struct ClaudeLogReader: SpendReader {
                     counts: counts,
                     wouldCost: Pricing.cost(counts, provider: "anthropic", model: model))
         }
-        return spend.counts.total > 0 ? [.claude: spend] : [:]
+        return SpendReading(spend: spend.counts.total > 0 ? [.claude: spend] : [:])
     }
 
     /// Every session ever recorded lives under this directory, so filtering by
     /// modification date is what keeps the poll cheap.
-    private func recentFiles(since: Date) -> [URL] {
+    ///
+    /// `nil` means the walk itself failed, which is the only thing that counts as an
+    /// unreadable source: a directory that was never created is an empty day, and a
+    /// single file locked mid-write is skipped rather than failing the whole pass.
+    private func recentFiles(since: Date) -> [URL]? {
+        guard FileManager.default.fileExists(atPath: root.path) else { return [] }
+
         let keys: [URLResourceKey] = [.contentModificationDateKey]
         guard
             let walker = FileManager.default.enumerator(
                 at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
-        else { return [] }
+        else { return nil }
 
         return walker.compactMap { item in
             guard let url = item as? URL, url.pathExtension == "jsonl" else { return nil }

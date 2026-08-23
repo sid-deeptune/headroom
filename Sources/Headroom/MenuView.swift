@@ -180,6 +180,7 @@ struct ProviderSection: View {
     let provider: Provider
     let snapshot: ProviderSnapshot
     let spend: Spend?
+    let spendIsStale: Bool
     let now: Date
 
     var body: some View {
@@ -209,6 +210,7 @@ struct ProviderSection: View {
 
             if let spend, spend.counts.total > 0 {
                 SpendRow(spend: spend)
+                    .opacity(spendIsStale ? 0.45 : 1)
             }
         }
     }
@@ -259,7 +261,8 @@ struct MenuView: View {
             ForEach(Provider.allCases, id: \.self) { provider in
                 ProviderSection(
                     provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
-                    spend: store.spend[provider], now: now)
+                    spend: store.spend[provider],
+                    spendIsStale: store.staleSpend.contains(provider), now: now)
             }
 
             Divider()

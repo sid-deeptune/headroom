@@ -9,6 +9,8 @@ import SQLite3
 /// is ignored: it reads 0 on subscription authentication, which is every provider the
 /// app tracks.
 struct OpenCodeReader: SpendReader {
+    let providers: [Provider] = [.claude, .codex, .kimi]
+
     private let database = URL.homeDirectory
         .appending(path: ".local/share/opencode/opencode.db")
 
@@ -29,27 +31,30 @@ struct OpenCodeReader: SpendReader {
         GROUP BY 1, 2
         """
 
-    func read(since: Date) -> [Provider: Spend] {
-        guard FileManager.default.fileExists(atPath: database.path) else { return [:] }
+    func read(since: Date) -> SpendReading {
+        // No database is not a failure: it is what an unused OpenCode looks like.
+        guard FileManager.default.fileExists(atPath: database.path) else { return SpendReading() }
 
         // Read-only, so a poll can never disturb a running OpenCode session.
         var handle: OpaquePointer?
         guard sqlite3_open_v2(database.path, &handle, SQLITE_OPEN_READONLY, nil) == SQLITE_OK
         else {
             sqlite3_close(handle)
-            return [:]
+            return SpendReading(failed: true)
         }
         defer { sqlite3_close(handle) }
 
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(handle, Self.query, -1, &statement, nil) == SQLITE_OK else {
-            return [:]
+            return SpendReading(failed: true)
         }
         defer { sqlite3_finalize(statement) }
         sqlite3_bind_int64(statement, 1, Int64(since.timeIntervalSince1970 * 1000))
 
         var spend: [Provider: Spend] = [:]
-        while sqlite3_step(statement) == SQLITE_ROW {
+        var step = sqlite3_step(statement)
+        while step == SQLITE_ROW {
+            defer { step = sqlite3_step(statement) }
             guard let providerID = text(statement, 0), let provider = map(providerID) else {
                 continue
             }
@@ -63,7 +68,12 @@ struct OpenCodeReader: SpendReader {
                 tokens, provider: providerID, model: text(statement, 1) ?? "")
             spend[provider] = (spend[provider] ?? Spend()) + Spend(counts: tokens, wouldCost: cost)
         }
-        return spend
+
+        // A run that stopped short — the database busy under a live OpenCode session —
+        // has counted only part of the day, so it is reported as a failure rather than
+        // as a smaller day.
+        guard step == SQLITE_DONE else { return SpendReading(failed: true) }
+        return SpendReading(spend: spend)
     }
 
     /// OpenCode names providers; the menu bar groups by the subscription they bill to.

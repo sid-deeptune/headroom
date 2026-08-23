@@ -168,7 +168,7 @@ private func probe() -> Never {
 
         let since = Calendar.current.startOfDay(for: Date())
         for reader in spendReaders {
-            for (provider, spend) in reader.read(since: since) {
+            for (provider, spend) in reader.read(since: since).spend {
                 let counts = spend.counts
                 print(
                     "\(provider.rawValue) today  in \(counts.input)  out \(counts.output)  "

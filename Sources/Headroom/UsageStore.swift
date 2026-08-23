@@ -8,6 +8,9 @@ final class UsageStore: ObservableObject {
     @Published private(set) var isRefreshing = false
     /// Today's local activity, keyed by the subscription it bills to.
     @Published private(set) var spend: [Provider: Spend] = [:]
+    /// Providers whose last read failed, so their figure is the last known one rather
+    /// than today's. The menu dims those rows.
+    @Published private(set) var staleSpend: Set<Provider> = []
 
     private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider(), KimiProvider()]
 
@@ -49,20 +52,32 @@ final class UsageStore: ObservableObject {
     /// transcripts can run to tens of megabytes.
     private func readSpend() async {
         let since = Calendar.current.startOfDay(for: Date())
-        let read = await Task.detached {
-            var total: [Provider: Spend] = [:]
-            for reader in spendReaders {
-                for (provider, spend) in reader.read(since: since) {
-                    total[provider] = (total[provider] ?? Spend()) + spend
-                }
-            }
-            return total
+        let readings = await Task.detached {
+            spendReaders.map { ($0.providers, $0.read(since: since)) }
         }.value
 
-        // Merged, not replaced: a reader that fails — an unreadable file, a database
-        // mid-write — returns nothing, and the last known figure is better than a row
-        // that vanishes.
-        for (provider, spend) in read { self.spend[provider] = spend }
+        var total: [Provider: Spend] = [:]
+        var failed: Set<Provider> = []
+        for (covered, reading) in readings {
+            // A failed reader taints every provider it speaks for, including ones another
+            // reader also reports: half a figure looks like a quiet day rather than a
+            // broken read.
+            guard !reading.failed else {
+                failed.formUnion(covered)
+                continue
+            }
+            for (provider, spend) in reading.spend {
+                total[provider] = (total[provider] ?? Spend()) + spend
+            }
+        }
+
+        // Written, not merged, wherever the read was sound: a provider with no rows did
+        // nothing today, and its row has to go rather than carry yesterday forward. Where
+        // the read failed the last known figure stays, marked stale.
+        for provider in Provider.allCases where !failed.contains(provider) {
+            spend[provider] = total[provider]
+        }
+        staleSpend = failed.intersection(spend.keys)
     }
 
     /// Drives the refresh button's enabled state, so a click that would be dropped is
@@ -106,6 +121,10 @@ final class UsageStore: ObservableObject {
         let now = Date()
         updatedAt = now
         UsageSnapshotFile.write(states: states, updatedAt: now)
+
+        // The button is what you press when a figure looks wrong, and a stale spend row
+        // is the likeliest wrong figure on screen.
+        await readSpend()
     }
 
     /// Retries rate limiting and server errors rather than waiting out the poll

@@ -33,9 +33,23 @@ struct Spend {
     }
 }
 
+/// What one pass over a tool's records saw.
+///
+/// `failed` separates "the source could not be read" from "the source was read and it
+/// says nothing happened today". Without that split a quiet provider keeps yesterday's
+/// figures under a label that says today.
+struct SpendReading {
+    var spend: [Provider: Spend] = [:]
+    var failed = false
+}
+
 /// Reads a tool's own local records. No network, no quota.
 protocol SpendReader: Sendable {
-    func read(since: Date) -> [Provider: Spend]
+    /// Every provider this reader speaks for, whether or not it found rows for one.
+    /// A provider absent from a successful reading is genuinely at zero.
+    var providers: [Provider] { get }
+
+    func read(since: Date) -> SpendReading
 }
 
 /// One list, shared by the store and by `--probe`.
