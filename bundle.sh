@@ -30,4 +30,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 PLIST
 
 codesign --force --sign - "$APP"
-echo "Built $APP"
+
+# Spotlight only indexes /Applications, so keep that copy in step with this build.
+rsync -a --delete "$APP/" /Applications/Headroom.app/
+
+echo "Built $APP and installed to /Applications"
