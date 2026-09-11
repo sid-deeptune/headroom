@@ -1,14 +1,16 @@
 import Foundation
 
 /// Claude Code's own session transcripts: one JSONL file per session under
-/// `~/.claude/projects/<encoded-path>/<session>.jsonl`.
+/// `<config dir>/projects/<encoded-path>/<session>.jsonl`.
 ///
 /// This is the same data `ccusage` reads. Doing it here keeps the app free of Node and
 /// of a network fetch on first run.
 struct ClaudeLogReader: SpendReader {
-    let providers: [Provider] = [.claude]
+    let account: ClaudeAccount
 
-    private let root = URL.homeDirectory.appending(path: ".claude/projects")
+    var providers: [Provider] { [account.provider] }
+
+    private var root: URL { account.root.appending(path: "projects") }
 
     func read(since: Date) -> SpendReading {
         guard let files = recentFiles(since: since) else { return SpendReading(failed: true) }
@@ -60,7 +62,7 @@ struct ClaudeLogReader: SpendReader {
                     counts: counts,
                     wouldCost: Pricing.cost(counts, provider: "anthropic", model: model))
         }
-        return SpendReading(spend: spend.counts.total > 0 ? [.claude: spend] : [:])
+        return SpendReading(spend: spend.counts.total > 0 ? [account.provider: spend] : [:])
     }
 
     /// Every session ever recorded lives under this directory, so filtering by

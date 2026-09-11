@@ -1,7 +1,9 @@
 import Foundation
 
+/// Declaration order is menu order: the panel lays these out two to a row.
 enum Provider: String, CaseIterable {
-    case claude = "Claude"
+    case claude = "Claude Deeptune"
+    case claudeMercor = "Claude Mercor"
     case codex = "Codex"
     case kimi = "Kimi"
 
@@ -9,7 +11,7 @@ enum Provider: String, CaseIterable {
     /// `bundle.sh`. Loaded as a template image so macOS tints it for light/dark.
     var iconName: String {
         switch self {
-        case .claude: return "claude"
+        case .claude, .claudeMercor: return "claude"
         case .codex: return "openai"
         case .kimi: return "kimi"
         }
@@ -18,7 +20,7 @@ enum Provider: String, CaseIterable {
     /// Used when running the bare binary, which has no resource bundle.
     var fallbackSymbol: String {
         switch self {
-        case .claude: return "sparkle"
+        case .claude, .claudeMercor: return "sparkle"
         case .codex: return "chevron.left.forwardslash.chevron.right"
         case .kimi: return "moon.stars"
         }

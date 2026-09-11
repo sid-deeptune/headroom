@@ -22,7 +22,8 @@ const TOOLS = [
     name: 'headroom_usage',
     description:
       'Report how much subscription quota is left across every AI provider tracked by ' +
-      'the Headroom menu bar app: Claude, Codex (OpenAI), and Kimi. Returns each rolling ' +
+      'the Headroom menu bar app: two Claude accounts (Claude Deeptune, Claude Mercor), ' +
+      'Codex (OpenAI), and Kimi. Returns each rolling ' +
       'window with its percent used and reset time. Reads a local cache written by the ' +
       'app — it makes no network calls and consumes no quota, so it is safe to call ' +
       'freely. Call it before delegating work across providers, before a long or highly ' +
@@ -150,7 +151,7 @@ async function handle(msg) {
           name: 'headroom',
           version: '1.0.0',
           description:
-            'Reports remaining subscription quota across Claude, Codex, and Kimi, read ' +
+            'Reports remaining subscription quota across two Claude accounts, Codex, and Kimi, read ' +
             'from the Headroom menu bar app cache. No network calls, no quota cost.',
         },
       });

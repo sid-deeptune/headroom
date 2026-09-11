@@ -115,8 +115,10 @@ func formatTokens(_ tokens: Int) -> String {
 /// Today's local activity for one provider, expandable.
 ///
 /// Collapsed it shows input and output — the tokens that track real work — with the
-/// cache figure subdued beside them, because on any real day cache reads are two orders
-/// of magnitude larger and would otherwise be all you read. Clicking opens the split.
+/// cache figure subdued beneath them, because on any real day cache reads are two orders
+/// of magnitude larger and would otherwise be all you read. Beneath rather than beside,
+/// because a grid column is too narrow to hold all three on one line. Clicking opens the
+/// split.
 ///
 /// Deliberately says "would cost": every provider here is on a subscription, so this is
 /// the API value of the work, not money that was charged.
@@ -129,21 +131,24 @@ struct SpendRow: View {
             Button {
                 expanded.toggle()
             } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 7, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                    Text("today")
-                        .foregroundStyle(.tertiary)
-                    Text("\(formatTokens(spend.counts.input)) in · \(formatTokens(spend.counts.output)) out")
-                        .foregroundStyle(.secondary)
-                    if !expanded {
-                        Text("· \(formatTokens(spend.counts.cacheRead)) cached")
-                            .foregroundStyle(.quaternary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 7, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        Text("today")
+                            .foregroundStyle(.tertiary)
+                        Text("\(formatTokens(spend.counts.input)) in · \(formatTokens(spend.counts.output)) out")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("$\(spend.wouldCost, specifier: "%.2f")")
+                            .foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    Text("$\(spend.wouldCost, specifier: "%.2f")")
-                        .foregroundStyle(.secondary)
+                    if !expanded {
+                        Text("\(formatTokens(spend.counts.cacheRead)) cached")
+                            .foregroundStyle(.quaternary)
+                            .padding(.leading, 11)
+                    }
                 }
                 .font(.caption2)
                 .contentShape(.rect)
@@ -256,13 +261,28 @@ struct MenuView: View {
     @State private var now = Date()
     private let tick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    /// Narrower than the old single column: at that width the grid ran to ~600pt, too
+    /// wide to hang off the menu bar. `SpendRow` wraps its cache figure to fit.
+    private let columnWidth: CGFloat = 216
+    private let columnSpacing: CGFloat = 16
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Provider.allCases, id: \.self) { provider in
-                ProviderSection(
-                    provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
-                    spend: store.spend[provider],
-                    spendIsStale: store.staleSpend.contains(provider), now: now)
+            // Two to a row, top-aligned: sections differ in height (Claude can show a
+            // per-model cap, a spend row can be expanded), and centring would misalign
+            // the headers across a row.
+            LazyVGrid(
+                columns: Array(
+                    repeating: GridItem(.fixed(columnWidth), spacing: columnSpacing, alignment: .top),
+                    count: 2),
+                alignment: .leading, spacing: 14
+            ) {
+                ForEach(Provider.allCases, id: \.self) { provider in
+                    ProviderSection(
+                        provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
+                        spend: store.spend[provider],
+                        spendIsStale: store.staleSpend.contains(provider), now: now)
+                }
             }
 
             Divider()
@@ -291,7 +311,7 @@ struct MenuView: View {
             }
         }
         .padding(14)
-        .frame(width: 300)
+        .frame(width: columnWidth * 2 + columnSpacing + 28)
         .onReceive(tick) { now = $0 }
     }
 }

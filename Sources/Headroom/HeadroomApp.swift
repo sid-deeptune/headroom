@@ -187,7 +187,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 /// `Headroom --probe` prints live provider output and exits. A menu bar app has no
 /// console, so this is how we see what the providers actually return.
 private func probe() -> Never {
-    let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider(), KimiProvider()]
+    let providers: [UsageProvider] = [
+        ClaudeProvider(account: .deeptune), ClaudeProvider(account: .mercor), CodexProvider(),
+        KimiProvider(),
+    ]
     let done = DispatchSemaphore(value: 0)
     Task {
         for provider in providers {

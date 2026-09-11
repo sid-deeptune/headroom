@@ -53,4 +53,6 @@ protocol SpendReader: Sendable {
 }
 
 /// One list, shared by the store and by `--probe`.
-let spendReaders: [SpendReader] = [ClaudeLogReader(), OpenCodeReader()]
+let spendReaders: [SpendReader] = [
+    ClaudeLogReader(account: .deeptune), ClaudeLogReader(account: .mercor), OpenCodeReader(),
+]

@@ -77,7 +77,7 @@ struct OpenCodeReader: SpendReader {
     }
 
     /// OpenCode names providers; the menu bar groups by the subscription they bill to.
-    /// A provider that is not one of the three tracked here is left out rather than
+    /// A provider that is not one tracked here is left out rather than
     /// folded into a neighbour.
     private func map(_ providerID: String) -> Provider? {
         switch providerID {

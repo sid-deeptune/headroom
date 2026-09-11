@@ -12,7 +12,10 @@ final class UsageStore: ObservableObject {
     /// than today's. The menu dims those rows.
     @Published private(set) var staleSpend: Set<Provider> = []
 
-    private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider(), KimiProvider()]
+    private let providers: [UsageProvider] = [
+        ClaudeProvider(account: .deeptune), ClaudeProvider(account: .mercor), CodexProvider(),
+        KimiProvider(),
+    ]
 
     /// Anthropic's endpoint is server-side rate limited, and opening the menu used to
     /// fetch as well, which is what pushed it into 429s. The shortest window we track
@@ -89,7 +92,7 @@ final class UsageStore: ObservableObject {
     }
 
     /// Providers are fetched concurrently and fail independently — one signed-out
-    /// provider must not blank out the other two.
+    /// provider must not blank out the others.
     func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true

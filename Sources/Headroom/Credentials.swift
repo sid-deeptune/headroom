@@ -17,28 +17,30 @@ enum Credentials {
 
     // MARK: Claude Code
 
-    /// Keychain is the live store; `~/.claude/.credentials.json` is a stale plaintext
-    /// fallback Claude Code only writes when Keychain is unavailable.
+    /// Keychain is the live store; `.credentials.json` in the config directory is a stale
+    /// plaintext fallback Claude Code only writes when Keychain is unavailable.
     ///
     /// Shells out to `/usr/bin/security` rather than using the in-process Keychain API:
     /// the item is ACL'd to Claude Code, and an ad-hoc-signed app gets a new identity on
     /// every rebuild, so an in-process read would re-prompt after each build.
-    static func claudeAccessToken() throws -> String {
-        if let json = try? runSecurity(), let token = claudeToken(from: json) {
+    static func claudeAccessToken(for account: ClaudeAccount) throws -> String {
+        if let json = try? runSecurity(service: account.keychainService),
+            let token = claudeToken(from: json)
+        {
             return token
         }
-        let fallback = URL.homeDirectory.appending(path: ".claude/.credentials.json")
+        let fallback = account.root.appending(path: ".credentials.json")
         if let data = try? Data(contentsOf: fallback), let token = claudeToken(from: data) {
             return token
         }
         throw CredentialError.missing("Claude Code not signed in")
     }
 
-    private static func runSecurity() throws -> Data {
+    private static func runSecurity(service: String) throws -> Data {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/security")
         process.arguments = [
-            "find-generic-password", "-a", NSUserName(), "-w", "-s", "Claude Code-credentials",
+            "find-generic-password", "-a", NSUserName(), "-w", "-s", service,
         ]
         let pipe = Pipe()
         process.standardOutput = pipe
