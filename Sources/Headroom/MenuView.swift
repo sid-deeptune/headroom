@@ -64,11 +64,18 @@ struct ProviderIcon: View {
     private static let templates: [String: NSImage] = {
         var loaded: [String: NSImage] = [:]
         for provider in Provider.allCases {
-            if let image = NSImage(named: provider.iconName) {
-                image.isTemplate = true
+            if let bitmap = NSImage(named: provider.iconName) {
                 // The status bar button lays out from the NSImage's intrinsic size, so
                 // a 256pt source renders enormous there.
-                image.size = NSSize(width: 16, height: 16)
+                let size = NSSize(width: 16, height: 16)
+                // Redrawn at whatever size it is shown at. Handed the 256px bitmap
+                // directly, SwiftUI shrinks it without smoothing, which breaks the
+                // Claude mark's thin rays into loose pixels.
+                let image = NSImage(size: size, flipped: false) { rect in
+                    bitmap.draw(in: rect)
+                    return true
+                }
+                image.isTemplate = true
                 loaded[provider.iconName] = image
             }
         }
