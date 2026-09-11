@@ -64,9 +64,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// gives no signal that it did, so the item that survives a full menu bar is the
     /// narrow one.
     private func draw(_ button: NSStatusBarButton) {
+        let badged = !store.exhausted.isEmpty
         if let window = store.tightest {
             button.image = ProviderIcon.template(for: window.provider)
-            button.title = " \(window.label) \(Int(window.percent.rounded()))%"
+            // The badge sits in the gap before the label, so the gap widens to hold it.
+            button.title = (badged ? "   " : " ") + "\(window.label) \(Int(window.percent.rounded()))%"
             button.imagePosition = .imageLeading
         } else {
             button.image = NSImage(
@@ -75,6 +77,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.title = ""
             button.imagePosition = .imageOnly
         }
+        drawBadge(on: button, visible: badged)
+    }
+
+    /// A red dot while any provider is used up, since the title has moved on to a
+    /// provider that is not. It sits between the icon and the label rather than on the
+    /// icon, which would read as a fault with the provider shown. A subview rather than
+    /// a glyph in the title: the title would need an attributed string, which drops the
+    /// menu bar's own text colouring.
+    private func drawBadge(on button: NSStatusBarButton, visible: Bool) {
+        let id = NSUserInterfaceItemIdentifier("exhausted-badge")
+        let size: CGFloat = 6
+        let badge =
+            button.subviews.first { $0.identifier == id }
+            ?? {
+                let dot = NSView()
+                dot.identifier = id
+                dot.wantsLayer = true
+                dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+                dot.layer?.cornerRadius = size / 2
+                button.addSubview(dot)
+                return dot
+            }()
+        badge.isHidden = !visible
+        guard visible, let cell = button.cell else { return }
+
+        // The title rect starts at the leading spaces, not the first glyph, so the gap
+        // runs from the icon's edge to the end of those spaces.
+        let icon = cell.imageRect(forBounds: button.bounds)
+        let title = cell.titleRect(forBounds: button.bounds)
+        let spaces = String(button.title.prefix { $0 == " " }) as NSString
+        let glyphs = title.minX + spaces.size(withAttributes: [.font: button.font ?? .menuBarFont(ofSize: 0)]).width
+        badge.frame = NSRect(
+            x: (icon.maxX + glyphs - size) / 2, y: icon.midY - size / 2, width: size, height: size)
     }
 
     private func buildPanel() {

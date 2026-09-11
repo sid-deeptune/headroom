@@ -151,8 +151,26 @@ final class UsageStore: ObservableObject {
         Provider.allCases.flatMap { states[$0]?.windows ?? [] }
     }
 
-    /// The window closest to biting — this is what the menu bar shows.
+    /// Providers with a window at 100%. Every window of such a provider is blocked, a
+    /// quiet 5h one included, so the whole provider is out rather than that one window.
+    var exhausted: Set<Provider> {
+        Set(allWindows.filter { $0.percent >= 100 }.map(\.provider))
+    }
+
+    /// The window closest to biting among providers that still have headroom — this is
+    /// what the menu bar shows. A used-up provider would otherwise pin the title at 100%
+    /// for days and hide every other subscription; the badge marks it instead. When all
+    /// of them are used up, it is the one that frees first, which is the window that
+    /// resets last within that provider.
     var tightest: Window? {
-        allWindows.max { $0.percent < $1.percent }
+        let blocked = exhausted
+        if let open = allWindows.filter({ !blocked.contains($0.provider) }).max(by: { $0.percent < $1.percent }) {
+            return open
+        }
+        let reset = { (window: Window) in window.resetsAt ?? .distantFuture }
+        return Dictionary(grouping: allWindows.filter { $0.percent >= 100 }, by: \.provider)
+            .values
+            .compactMap { $0.max { reset($0) < reset($1) } }
+            .min { reset($0) < reset($1) }
     }
 }
