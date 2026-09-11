@@ -1,6 +1,22 @@
 import ServiceManagement
 import SwiftUI
 
+/// Every size in the panel is multiplied by this, so the panel grows as a whole and
+/// keeps its proportions rather than having its parts retuned one by one.
+let panelScale: CGFloat = 1.2
+
+extension Font {
+    /// `.caption` and `.caption2` at the panel's scale. macOS text styles have fixed
+    /// sizes, so these stand in for them: both are 10pt, and `.caption2` is medium weight.
+    static func panelCaption(design: Font.Design = .default) -> Font {
+        .system(size: 10 * panelScale, design: design)
+    }
+
+    static func panelCaption2(design: Font.Design = .default) -> Font {
+        .system(size: 10 * panelScale, weight: .medium, design: design)
+    }
+}
+
 /// Neutral below 60%, amber to 85%, red above.
 ///
 /// Colour is reserved exclusively for urgency — provider identity is carried by name
@@ -25,7 +41,7 @@ func timeUntil(_ date: Date?) -> String {
 
 struct ProviderIcon: View {
     let provider: Provider
-    var size: CGFloat = 12
+    var size: CGFloat = 12 * panelScale
 
     var body: some View {
         if let image = ProviderIcon.templates[provider.iconName] {
@@ -72,7 +88,7 @@ struct Meter: View {
                     .frame(width: geometry.size.width * min(max(percent, 0), 100) / 100)
             }
         }
-        .frame(height: 4)
+        .frame(height: 4 * panelScale)
     }
 }
 
@@ -80,20 +96,20 @@ struct WindowRow: View {
     let window: Window
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 8 * panelScale) {
             Text(window.label)
-                .font(.system(.caption, design: .monospaced))
+                .font(.panelCaption(design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 62, alignment: .leading)
+                .frame(width: 62 * panelScale, alignment: .leading)
             Meter(percent: window.percent)
             Text("\(Int(window.percent.rounded()))%")
-                .font(.system(.caption, design: .monospaced))
+                .font(.panelCaption(design: .monospaced))
                 .foregroundStyle(urgencyTint(window.percent))
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 32 * panelScale, alignment: .trailing)
             Text(timeUntil(window.resetsAt))
-                .font(.caption2)
+                .font(.panelCaption2())
                 .foregroundStyle(.tertiary)
-                .frame(width: 46, alignment: .trailing)
+                .frame(width: 46 * panelScale, alignment: .trailing)
         }
     }
 }
@@ -127,14 +143,14 @@ struct SpendRow: View {
     @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 3 * panelScale) {
             Button {
                 expanded.toggle()
             } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 4) {
+                VStack(alignment: .leading, spacing: 2 * panelScale) {
+                    HStack(spacing: 4 * panelScale) {
                         Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 7, weight: .semibold))
+                            .font(.system(size: 7 * panelScale, weight: .semibold))
                             .foregroundStyle(.tertiary)
                         Text("today")
                             .foregroundStyle(.tertiary)
@@ -147,10 +163,10 @@ struct SpendRow: View {
                     if !expanded {
                         Text("\(formatTokens(spend.counts.cacheRead)) cached")
                             .foregroundStyle(.quaternary)
-                            .padding(.leading, 11)
+                            .padding(.leading, 11 * panelScale)
                     }
                 }
-                .font(.caption2)
+                .font(.panelCaption2())
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -161,9 +177,9 @@ struct SpendRow: View {
                 breakdown("Cache read", spend.counts.cacheRead, subdued: true)
                 breakdown("Cache write", spend.counts.cacheWrite, subdued: true)
                 Text("would cost at API prices")
-                    .font(.caption2)
+                    .font(.panelCaption2())
                     .foregroundStyle(.quaternary)
-                    .padding(.leading, 11)
+                    .padding(.leading, 11 * panelScale)
             }
         }
     }
@@ -173,11 +189,11 @@ struct SpendRow: View {
             Text(label)
             Spacer()
             Text(formatTokens(tokens))
-                .font(.system(.caption2, design: .monospaced))
+                .font(.panelCaption2(design: .monospaced))
         }
-        .font(.caption2)
+        .font(.panelCaption2())
         .foregroundStyle(subdued ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.secondary))
-        .padding(.leading, 11)
+        .padding(.leading, 11 * panelScale)
     }
 }
 
@@ -189,15 +205,15 @@ struct ProviderSection: View {
     let now: Date
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 5 * panelScale) {
+            HStack(spacing: 6 * panelScale) {
                 ProviderIcon(provider: provider)
                 Text(provider.rawValue)
-                    .font(.caption.weight(.semibold))
+                    .font(.panelCaption().weight(.semibold))
                 Spacer()
                 if snapshot.isStale, let updatedAt = snapshot.updatedAt {
                     Text("as of \(timeAgo(updatedAt, now: now))")
-                        .font(.caption2)
+                        .font(.panelCaption2())
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -206,7 +222,7 @@ struct ProviderSection: View {
             if snapshot.windows.isEmpty {
                 // Only surface the error when there is nothing to fall back on.
                 Text(snapshot.error ?? (snapshot.hasData ? "No active limits" : "Loading…"))
-                    .font(.caption2)
+                    .font(.panelCaption2())
                     .foregroundStyle(.tertiary)
             } else {
                 ForEach(snapshot.windows) { WindowRow(window: $0) }
@@ -237,12 +253,13 @@ struct RefreshButton: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 13 * panelScale))
                 }
             }
-            .frame(width: 22, height: 22)
+            .frame(width: 22 * panelScale, height: 22 * panelScale)
             .background(
                 hovering ? Color.primary.opacity(0.12) : .clear,
-                in: RoundedRectangle(cornerRadius: 5))
+                in: RoundedRectangle(cornerRadius: 5 * panelScale))
         }
         .buttonStyle(.plain)
         .disabled(!store.canRefresh)
@@ -263,11 +280,11 @@ struct MenuView: View {
 
     /// Narrower than the old single column: at that width the grid ran to ~600pt, too
     /// wide to hang off the menu bar. `SpendRow` wraps its cache figure to fit.
-    private let columnWidth: CGFloat = 216
-    private let columnSpacing: CGFloat = 16
+    private let columnWidth: CGFloat = 216 * panelScale
+    private let columnSpacing: CGFloat = 16 * panelScale
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12 * panelScale) {
             // Two to a row, top-aligned: sections differ in height (Claude can show a
             // per-model cap, a spend row can be expanded), and centring would misalign
             // the headers across a row.
@@ -275,7 +292,7 @@ struct MenuView: View {
                 columns: Array(
                     repeating: GridItem(.fixed(columnWidth), spacing: columnSpacing, alignment: .top),
                     count: 2),
-                alignment: .leading, spacing: 14
+                alignment: .leading, spacing: 14 * panelScale
             ) {
                 ForEach(Provider.allCases, id: \.self) { provider in
                     ProviderSection(
@@ -289,7 +306,7 @@ struct MenuView: View {
 
             HStack {
                 Text(store.updatedAt.map { "Updated \(timeAgo($0, now: now))" } ?? "Updating…")
-                    .font(.caption2)
+                    .font(.panelCaption2())
                     .foregroundStyle(.tertiary)
                 Spacer()
                 RefreshButton(store: store)
@@ -298,7 +315,7 @@ struct MenuView: View {
             HStack {
                 Toggle("Open at Login", isOn: $launchAtLogin)
                     .toggleStyle(.checkbox)
-                    .font(.caption)
+                    .font(.panelCaption())
                     .onChange(of: launchAtLogin) { _, enabled in
                         try? enabled
                             ? SMAppService.mainApp.register()
@@ -307,11 +324,11 @@ struct MenuView: View {
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
                     .buttonStyle(.borderless)
-                    .font(.caption)
+                    .font(.panelCaption())
             }
         }
-        .padding(14)
-        .frame(width: columnWidth * 2 + columnSpacing + 28)
+        .padding(14 * panelScale)
+        .frame(width: columnWidth * 2 + columnSpacing + 28 * panelScale)
         .onReceive(tick) { now = $0 }
     }
 }
