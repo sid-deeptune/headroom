@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import WidgetKit
 
 @MainActor
 final class UsageStore: ObservableObject {
@@ -84,6 +85,7 @@ final class UsageStore: ObservableObject {
             spend[provider] = total[provider]
         }
         staleSpend = failed.intersection(spend.keys)
+        publish(.providers)
     }
 
     /// A week of transcripts is far more to parse than a day, so this runs with the slow
@@ -110,6 +112,18 @@ final class UsageStore: ObservableObject {
             models[harness] = total[harness] ?? [:]
         }
         staleModels = failed.intersection(models.keys)
+        publish(.models)
+    }
+
+    /// Saves what the panel shows for the desktop widgets, then reloads only the widget
+    /// whose figures this read changed: WidgetKit budgets how often a widget reloads.
+    /// A refresh reaches the Providers widget through the spend read that ends it.
+    private func publish(_ tab: PanelTab) {
+        PanelSnapshot(
+            states: states, updatedAt: updatedAt, spend: spend, staleSpend: staleSpend,
+            models: models, staleModels: staleModels
+        ).write()
+        WidgetCenter.shared.reloadTimelines(ofKind: tab.rawValue)
     }
 
     /// Drives the refresh button's enabled state, so a click that would be dropped is

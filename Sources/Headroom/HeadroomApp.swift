@@ -4,7 +4,25 @@ import SwiftUI
 
 @main
 enum Main {
+    /// Set once the process has handed itself to the extension runtime; see `main`.
+    private static var extensionStarted = false
+
     static func main() {
+        // The desktop widgets run this same binary, copied into the app's PlugIns by
+        // `bundle.sh`. SwiftPM shares no sources between two executables, and a shared
+        // library would mean opening up every type the widgets draw.
+        //
+        // An extension has to start in `NSExtensionMain`, which runs it and does not
+        // return. That runtime calls this `main` back to find the widgets, and the
+        // second call is the one that hands them over.
+        if Bundle.main.bundleURL.pathExtension == "appex" {
+            if extensionStarted {
+                MainActor.assumeIsolated { HeadroomWidgets.main() }
+                return
+            }
+            extensionStarted = true
+            exit(NSExtensionMain(CommandLine.argc, CommandLine.unsafeArgv))
+        }
         if CommandLine.arguments.contains("--probe") { probe() }
         let app = NSApplication.shared
         let delegate = MainActor.assumeIsolated { AppDelegate() }
@@ -12,6 +30,13 @@ enum Main {
         app.run()
     }
 }
+
+/// Foundation's entry point for app extensions. Xcode makes it an extension's entry point
+/// at link time; the SDK has no header for it, so it is declared here by symbol name.
+@_silgen_name("NSExtensionMain")
+private func NSExtensionMain(
+    _ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>
+) -> Int32
 
 /// Borderless so the panel matches what `MenuBarExtra(.window)` drew. `NSPopover` was
 /// the obvious substitute but it is not the same UI: it adds an anchor arrow and drops

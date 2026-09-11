@@ -29,9 +29,11 @@ func urgencyTint(_ percent: Double) -> Color {
     return .secondary
 }
 
-func timeUntil(_ date: Date?) -> String {
+/// Takes `now` for the reason `timeAgo` does, and because a widget draws its later
+/// entries ahead of time.
+func timeUntil(_ date: Date?, now: Date) -> String {
     guard let date else { return "" }
-    let total = Int(max(0, date.timeIntervalSinceNow))
+    let total = Int(max(0, date.timeIntervalSince(now)))
     let days = total / 86400
     let hours = (total % 86400) / 3600
     let minutes = (total % 3600) / 60
@@ -102,6 +104,7 @@ struct Meter: View {
 
 struct WindowRow: View {
     let window: Window
+    let now: Date
 
     var body: some View {
         HStack(spacing: 8 * panelScale) {
@@ -114,7 +117,7 @@ struct WindowRow: View {
                 .font(.panelCaption(design: .monospaced))
                 .foregroundStyle(urgencyTint(window.percent))
                 .frame(width: 32 * panelScale, alignment: .trailing)
-            Text(timeUntil(window.resetsAt))
+            Text(timeUntil(window.resetsAt, now: now))
                 .font(.panelCaption2())
                 .foregroundStyle(.tertiary)
                 .frame(width: 46 * panelScale, alignment: .trailing)
@@ -233,7 +236,7 @@ struct ProviderSection: View {
                     .font(.panelCaption2())
                     .foregroundStyle(.tertiary)
             } else {
-                ForEach(snapshot.windows) { WindowRow(window: $0) }
+                ForEach(snapshot.windows) { WindowRow(window: $0, now: now) }
                     .opacity(snapshot.isStale ? 0.45 : 1)
             }
 
@@ -257,7 +260,7 @@ struct HarnessSection: View {
     let models: [String: Spend]?
     let isStale: Bool
 
-    private struct Slice {
+    struct Slice {
         let name: String
         let cost: Double
     }
@@ -265,7 +268,7 @@ struct HarnessSection: View {
     private static let shades: [Double] = [0.8, 0.58, 0.4, 0.26, 0.15]
 
     /// Past five, the shades stop being told apart, so the tail folds into "Other".
-    private var slices: [Slice] {
+    static func slices(of models: [String: Spend]?) -> [Slice] {
         let ranked = (models ?? [:])
             .map { Slice(name: $0.key, cost: $0.value.wouldCost) }
             .filter { $0.cost > 0 }
@@ -277,7 +280,7 @@ struct HarnessSection: View {
     }
 
     var body: some View {
-        let slices = self.slices
+        let slices = Self.slices(of: models)
         let total = slices.reduce(0) { $0 + $1.cost }
 
         VStack(alignment: .leading, spacing: 8 * panelScale) {
@@ -291,14 +294,7 @@ struct HarnessSection: View {
             } else {
                 VStack(alignment: .leading, spacing: 5 * panelScale) {
                     ZStack {
-                        Chart(Array(slices.enumerated()), id: \.element.name) { index, slice in
-                            SectorMark(
-                                angle: .value("Cost", slice.cost), innerRadius: .ratio(0.64),
-                                angularInset: 1
-                            )
-                            .foregroundStyle(Color.primary.opacity(Self.shades[index]))
-                        }
-                        .chartLegend(.hidden)
+                        Self.donut(slices)
 
                         VStack(spacing: 1 * panelScale) {
                             Text(total.formatted(.currency(code: "USD").precision(.fractionLength(0))))
@@ -312,26 +308,48 @@ struct HarnessSection: View {
                     .frame(height: 112 * panelScale)
                     .padding(.bottom, 4 * panelScale)
 
-                    ForEach(Array(slices.enumerated()), id: \.element.name) { index, slice in
-                        HStack(spacing: 6 * panelScale) {
-                            RoundedRectangle(cornerRadius: 2 * panelScale)
-                                .fill(Color.primary.opacity(Self.shades[index]))
-                                .frame(width: 8 * panelScale, height: 8 * panelScale)
-                            Text(slice.name)
-                            Spacer()
-                            Text(percentLabel(slice.cost / total * 100))
-                        }
-                        .font(.panelCaption(design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    }
+                    Self.legend(slices)
                 }
                 .opacity(isStale ? 0.45 : 1)
             }
         }
     }
 
+    /// The donut and the legend are static so the medium widget, which lays them out its
+    /// own way, draws the same ones.
+    static func donut(_ slices: [Slice]) -> some View {
+        Chart(Array(slices.enumerated()), id: \.element.name) { index, slice in
+            SectorMark(
+                angle: .value("Cost", slice.cost), innerRadius: .ratio(0.64),
+                angularInset: 1
+            )
+            .foregroundStyle(Color.primary.opacity(Self.shades[index]))
+        }
+        .chartLegend(.hidden)
+    }
+
+    static func legend(_ slices: [Slice]) -> some View {
+        let total = slices.reduce(0) { $0 + $1.cost }
+        return ForEach(Array(slices.enumerated()), id: \.element.name) { index, slice in
+            HStack(spacing: 6 * panelScale) {
+                RoundedRectangle(cornerRadius: 2 * panelScale)
+                    .fill(Color.primary.opacity(Self.shades[index]))
+                    .frame(width: 8 * panelScale, height: 8 * panelScale)
+                // One line, shrunk a little before it truncates: a widget's column is
+                // narrower than the panel's, and model ids run to 16 characters.
+                Text(slice.name)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text(percentLabel(slice.cost / total * 100))
+            }
+            .font(.panelCaption(design: .monospaced))
+            .foregroundStyle(.secondary)
+        }
+    }
+
     /// A sliver still has a slice, so it must not read as "0%".
-    private func percentLabel(_ percent: Double) -> String {
+    private static func percentLabel(_ percent: Double) -> String {
         percent < 1 ? "<1%" : "\(Int(percent.rounded()))%"
     }
 }

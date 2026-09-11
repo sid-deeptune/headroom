@@ -3,7 +3,7 @@ import Foundation
 /// Token counts as both log formats report them, kept split so the menu can show where
 /// the volume actually went. Cache reads dominate every real day, so folding them into
 /// one total would hide the input and output figures that track real work.
-struct TokenCounts {
+struct TokenCounts: Codable {
     var input = 0
     var output = 0
     var cacheRead = 0
@@ -24,7 +24,7 @@ struct TokenCounts {
 /// It is not what you were charged: every provider here is on a subscription, which is
 /// why Hermes records its own `cost` as 0. The dollar figure is a value estimate, so
 /// the UI labels it "would cost" rather than "spent".
-struct Spend {
+struct Spend: Codable {
     var counts = TokenCounts()
     var wouldCost: Double = 0
 
@@ -47,7 +47,7 @@ struct SpendReading {
 
 /// The tool the work was done in. The Models tab splits by this rather than by
 /// subscription, because one harness draws on several.
-enum Harness: String, CaseIterable {
+enum Harness: String, CaseIterable, Codable {
     case claudeCode = "Claude Code"
     case hermes = "Hermes"
 }

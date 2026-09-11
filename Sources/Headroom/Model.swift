@@ -1,7 +1,7 @@
 import Foundation
 
 /// Declaration order is menu order: the panel lays these out two to a row.
-enum Provider: String, CaseIterable {
+enum Provider: String, CaseIterable, Codable {
     case claude = "Claude Deeptune"
     case claudeMercor = "Claude Mercor"
     case codex = "Codex"
@@ -28,7 +28,7 @@ enum Provider: String, CaseIterable {
 }
 
 /// One quota window. Every provider reduces to a list of these.
-struct Window: Identifiable {
+struct Window: Identifiable, Codable {
     let id: String
     let provider: Provider
     /// Derived from the window length the API reports — never hardcoded, because
@@ -43,7 +43,7 @@ struct Window: Identifiable {
 /// Windows survive a failed refresh: a transient error dims the existing data rather
 /// than destroying it, so a momentary 429 does not blank a provider that was fine a
 /// minute ago.
-struct ProviderSnapshot {
+struct ProviderSnapshot: Codable {
     var windows: [Window] = []
     var updatedAt: Date?
     var error: String?
