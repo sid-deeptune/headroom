@@ -128,7 +128,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         background.layer?.cornerRadius = 10
         background.layer?.masksToBounds = true
 
-        let content = NSHostingView(rootView: MenuView(store: store))
+        let content = NSHostingView(
+            rootView: MenuView(store: store, onResize: { [weak self] in self?.refit() }))
         content.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(content)
         NSLayoutConstraint.activate([
@@ -168,6 +169,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, !self.itemContainsPointer() else { return }
                 self.closePanel()
             }
+        }
+    }
+
+    /// The tabs differ in height. The panel hangs from the menu bar, so it has to grow
+    /// and shrink from its top edge rather than wherever AppKit would anchor it.
+    private func refit() {
+        // The selection changes before the new tab is laid out.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, panel.isVisible, let screen = panel.screen,
+                let size = panel.contentView?.fittingSize
+            else { return }
+            panel.setFrame(
+                NSRect(
+                    x: panel.frame.minX, y: screen.visibleFrame.maxY - size.height,
+                    width: size.width, height: size.height),
+                display: true)
         }
     }
 
@@ -213,6 +230,16 @@ private func probe() -> Never {
                         + "cache r \(counts.cacheRead) w \(counts.cacheWrite)  "
                         + String(format: "$%.2f", spend.wouldCost))
             }
+        }
+
+        let week = Date().addingTimeInterval(-modelWindow)
+        for reader in spendReaders {
+            let started = Date()
+            let models = reader.read(since: week).models
+            for (model, spend) in models.sorted(by: { $0.value.wouldCost > $1.value.wouldCost }) {
+                print("\(reader.harness.rawValue) 7d  \(model)  " + String(format: "$%.2f", spend.wouldCost))
+            }
+            print("\(reader.harness.rawValue) 7d read in " + String(format: "%.1fs", Date().timeIntervalSince(started)))
         }
         done.signal()
     }

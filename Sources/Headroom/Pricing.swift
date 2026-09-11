@@ -10,10 +10,9 @@ struct ModelPrice {
 
 /// The price table, from models.dev.
 ///
-/// models.dev is where OpenCode gets its own provider and model ids, so its keys match
-/// what the logs contain and no name mapping is needed. A copy ships in the bundle so
-/// a first run with no network still prices correctly; the download only ever replaces
-/// a table that already works.
+/// Keys are models.dev's provider and model ids; readers map their log's names onto
+/// them. A copy ships in the bundle so a first run with no network still prices
+/// correctly; the download only ever replaces a table that already works.
 enum Pricing {
     /// Only the providers whose logs are read. The full document is 4 MB; this is 4 KB.
     private static let providers = ["anthropic", "openai", "kimi-for-coding", "moonshotai"]
@@ -30,10 +29,7 @@ enum Pricing {
     /// subscription rather than a metered endpoint. The same weights are sold by the
     /// hour under `moonshotai`, so that is what the value estimate uses.
     private static let metered = [
-        "kimi-for-coding/k3": ("moonshotai", "kimi-k3"),
-        "kimi-for-coding/k3-256k": ("moonshotai", "kimi-k3"),
-        "kimi-for-coding/kimi-for-coding": ("moonshotai", "kimi-k2.7-code"),
-        "kimi-for-coding/kimi-for-coding-highspeed": ("moonshotai", "kimi-k2.7-code-highspeed"),
+        "kimi-for-coding/kimi-k3": ("moonshotai", "kimi-k3")
     ]
 
     /// `provider` and `model` as the log recorded them. An unpriced model still has its

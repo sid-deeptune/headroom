@@ -94,9 +94,18 @@ func fetchJSON(_ urlString: String, headers: [String: String]) async throws -> [
 }
 
 /// Both Anthropic and Kimi return ISO-8601 with fractional seconds; Codex returns epoch.
+///
+/// The formatters are built once: a week of transcripts calls this tens of thousands of
+/// times, and building them per call was most of that read's cost.
 func parseISODate(_ string: String?) -> Date? {
     guard let string else { return nil }
-    let withFraction = ISO8601DateFormatter()
-    withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return withFraction.date(from: string) ?? ISO8601DateFormatter().date(from: string)
+    return isoWithFraction.date(from: string) ?? isoPlain.date(from: string)
 }
+
+private let isoWithFraction: ISO8601DateFormatter = {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter
+}()
+
+private let isoPlain = ISO8601DateFormatter()

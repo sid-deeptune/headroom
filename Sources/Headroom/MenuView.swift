@@ -1,3 +1,4 @@
+import Charts
 import ServiceManagement
 import SwiftUI
 
@@ -244,6 +245,97 @@ struct ProviderSection: View {
     }
 }
 
+/// One harness's last seven days, split by what each model's work would cost at API
+/// prices. Cost rather than tokens: cache reads outnumber everything else by an order of
+/// magnitude at a tenth of the price, so a token split mostly measures re-reads.
+///
+/// Monochrome on purpose. Colour means urgency everywhere else in the panel, so slices
+/// are told apart by shade, darkest for the largest, and the legend keeps that order.
+struct HarnessSection: View {
+    let harness: Harness
+    /// `nil` until the first read lands.
+    let models: [String: Spend]?
+    let isStale: Bool
+
+    private struct Slice {
+        let name: String
+        let cost: Double
+    }
+
+    private static let shades: [Double] = [0.8, 0.58, 0.4, 0.26, 0.15]
+
+    /// Past five, the shades stop being told apart, so the tail folds into "Other".
+    private var slices: [Slice] {
+        let ranked = (models ?? [:])
+            .map { Slice(name: $0.key, cost: $0.value.wouldCost) }
+            .filter { $0.cost > 0 }
+            .sorted { $0.cost > $1.cost }
+        guard ranked.count > Self.shades.count else { return ranked }
+        let kept = Self.shades.count - 1
+        return Array(ranked.prefix(kept))
+            + [Slice(name: "Other", cost: ranked.dropFirst(kept).reduce(0) { $0 + $1.cost })]
+    }
+
+    var body: some View {
+        let slices = self.slices
+        let total = slices.reduce(0) { $0 + $1.cost }
+
+        VStack(alignment: .leading, spacing: 8 * panelScale) {
+            Text(harness.rawValue)
+                .font(.panelCaption().weight(.semibold))
+
+            if slices.isEmpty {
+                Text(models == nil ? "Loading…" : "No work in the last 7 days")
+                    .font(.panelCaption2())
+                    .foregroundStyle(.tertiary)
+            } else {
+                VStack(alignment: .leading, spacing: 5 * panelScale) {
+                    ZStack {
+                        Chart(Array(slices.enumerated()), id: \.element.name) { index, slice in
+                            SectorMark(
+                                angle: .value("Cost", slice.cost), innerRadius: .ratio(0.64),
+                                angularInset: 1
+                            )
+                            .foregroundStyle(Color.primary.opacity(Self.shades[index]))
+                        }
+                        .chartLegend(.hidden)
+
+                        VStack(spacing: 1 * panelScale) {
+                            Text(total.formatted(.currency(code: "USD").precision(.fractionLength(0))))
+                                .font(.panelCaption(design: .monospaced).weight(.semibold))
+                            Text("7 days")
+                                .font(.panelCaption2())
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 112 * panelScale)
+                    .padding(.bottom, 4 * panelScale)
+
+                    ForEach(Array(slices.enumerated()), id: \.element.name) { index, slice in
+                        HStack(spacing: 6 * panelScale) {
+                            RoundedRectangle(cornerRadius: 2 * panelScale)
+                                .fill(Color.primary.opacity(Self.shades[index]))
+                                .frame(width: 8 * panelScale, height: 8 * panelScale)
+                            Text(slice.name)
+                            Spacer()
+                            Text(percentLabel(slice.cost / total * 100))
+                        }
+                        .font(.panelCaption(design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    }
+                }
+                .opacity(isStale ? 0.45 : 1)
+            }
+        }
+    }
+
+    /// A sliver still has a slice, so it must not read as "0%".
+    private func percentLabel(_ percent: Double) -> String {
+        percent < 1 ? "<1%" : "\(Int(percent.rounded()))%"
+    }
+}
+
 /// The manual trigger. Background polling is deliberately slow, so this is the way to
 /// force a fetch — which means it has to look like a button and say when it is busy.
 /// `.borderless` gave neither, which is why it read as broken.
@@ -275,9 +367,17 @@ struct RefreshButton: View {
     }
 }
 
+enum PanelTab: String, CaseIterable {
+    case providers = "Providers"
+    case models = "Models"
+}
+
 struct MenuView: View {
     @ObservedObject var store: UsageStore
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var tab = PanelTab.providers
+    /// Called when a tab switch changes the panel's height, so the window can follow.
+    var onResize: () -> Void = {}
 
     /// Ticks only while the panel is on screen. Without it the ages freeze at whatever
     /// they were when the menu opened, and the refresh button stays greyed out for the
@@ -292,20 +392,40 @@ struct MenuView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12 * panelScale) {
-            // Two to a row, top-aligned: sections differ in height (Claude can show a
-            // per-model cap, a spend row can be expanded), and centring would misalign
-            // the headers across a row.
-            LazyVGrid(
-                columns: Array(
-                    repeating: GridItem(.fixed(columnWidth), spacing: columnSpacing, alignment: .top),
-                    count: 2),
-                alignment: .leading, spacing: 14 * panelScale
-            ) {
-                ForEach(Provider.allCases, id: \.self) { provider in
-                    ProviderSection(
-                        provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
-                        spend: store.spend[provider],
-                        spendIsStale: store.staleSpend.contains(provider), now: now)
+            Picker("View", selection: $tab) {
+                ForEach(PanelTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .onChange(of: tab) { onResize() }
+
+            switch tab {
+            case .providers:
+                // Two to a row, top-aligned: sections differ in height (Claude can show a
+                // per-model cap, a spend row can be expanded), and centring would misalign
+                // the headers across a row.
+                LazyVGrid(
+                    columns: Array(
+                        repeating: GridItem(.fixed(columnWidth), spacing: columnSpacing, alignment: .top),
+                        count: 2),
+                    alignment: .leading, spacing: 14 * panelScale
+                ) {
+                    ForEach(Provider.allCases, id: \.self) { provider in
+                        ProviderSection(
+                            provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
+                            spend: store.spend[provider],
+                            spendIsStale: store.staleSpend.contains(provider), now: now)
+                    }
+                }
+            case .models:
+                HStack(alignment: .top, spacing: columnSpacing) {
+                    ForEach(Harness.allCases, id: \.self) { harness in
+                        HarnessSection(
+                            harness: harness, models: store.models[harness],
+                            isStale: store.staleModels.contains(harness)
+                        )
+                        .frame(width: columnWidth, alignment: .topLeading)
+                    }
                 }
             }
 

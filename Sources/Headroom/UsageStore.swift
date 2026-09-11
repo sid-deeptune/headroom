@@ -11,6 +11,9 @@ final class UsageStore: ObservableObject {
     /// Providers whose last read failed, so their figure is the last known one rather
     /// than today's. The menu dims those rows.
     @Published private(set) var staleSpend: Set<Provider> = []
+    /// The last `modelWindow` of work by model, per harness. Absent until the first read.
+    @Published private(set) var models: [Harness: [String: Spend]] = [:]
+    @Published private(set) var staleModels: Set<Harness> = []
 
     private let providers: [UsageProvider] = [
         ClaudeProvider(account: .deeptune), ClaudeProvider(account: .mercor), CodexProvider(),
@@ -83,6 +86,32 @@ final class UsageStore: ObservableObject {
         staleSpend = failed.intersection(spend.keys)
     }
 
+    /// A week of transcripts is far more to parse than a day, so this runs with the slow
+    /// network poll rather than the spend one. A split over seven days hardly moves in
+    /// fifteen minutes.
+    private func readModels() async {
+        let since = Date().addingTimeInterval(-modelWindow)
+        let readings = await Task.detached {
+            spendReaders.map { ($0.harness, $0.read(since: since)) }
+        }.value
+
+        var total: [Harness: [String: Spend]] = [:]
+        var failed: Set<Harness> = []
+        for (harness, reading) in readings {
+            // As with spend: one failed reader taints its whole harness.
+            guard !reading.failed else {
+                failed.insert(harness)
+                continue
+            }
+            total[harness, default: [:]].merge(reading.models) { $0 + $1 }
+        }
+
+        for harness in Harness.allCases where !failed.contains(harness) {
+            models[harness] = total[harness] ?? [:]
+        }
+        staleModels = failed.intersection(models.keys)
+    }
+
     /// Drives the refresh button's enabled state, so a click that would be dropped is
     /// visibly unavailable instead of silently doing nothing.
     var canRefresh: Bool {
@@ -128,6 +157,7 @@ final class UsageStore: ObservableObject {
         // The button is what you press when a figure looks wrong, and a stale spend row
         // is the likeliest wrong figure on screen.
         await readSpend()
+        await readModels()
     }
 
     /// Retries rate limiting and server errors rather than waiting out the poll

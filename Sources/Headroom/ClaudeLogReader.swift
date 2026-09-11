@@ -10,6 +10,8 @@ struct ClaudeLogReader: SpendReader {
 
     var providers: [Provider] { [account.provider] }
 
+    let harness = Harness.claudeCode
+
     private var root: URL { account.root.appending(path: "projects") }
 
     func read(since: Date) -> SpendReading {
@@ -25,10 +27,12 @@ struct ClaudeLogReader: SpendReader {
         for file in files {
             guard let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
             text.enumerateLines { line, _ in
-                guard let entry = decode(line),
+                // Most lines are tool output and prompts. Ruling them out before the JSON
+                // parse is what keeps a week of transcripts affordable to read.
+                guard line.contains("\"usage\""), let entry = decode(line),
                     parseISODate(entry["timestamp"] as? String).map({ $0 >= since }) == true,
                     let message = entry["message"] as? [String: Any],
-                    let model = message["model"] as? String,
+                    let model = (message["model"] as? String).map(canonicalModel),
                     let usage = message["usage"] as? [String: Any]
                 else { return }
 
@@ -56,13 +60,15 @@ struct ClaudeLogReader: SpendReader {
         }
 
         var spend = Spend()
+        var models: [String: Spend] = [:]
         for (model, counts) in byModel {
-            spend = spend
-                + Spend(
-                    counts: counts,
-                    wouldCost: Pricing.cost(counts, provider: "anthropic", model: model))
+            let modelSpend = Spend(
+                counts: counts, wouldCost: Pricing.cost(counts, provider: "anthropic", model: model))
+            models[model] = modelSpend
+            spend = spend + modelSpend
         }
-        return SpendReading(spend: spend.counts.total > 0 ? [account.provider: spend] : [:])
+        return SpendReading(
+            spend: spend.counts.total > 0 ? [account.provider: spend] : [:], models: models)
     }
 
     /// Every session ever recorded lives under this directory, so filtering by

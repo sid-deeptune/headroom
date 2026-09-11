@@ -12,7 +12,7 @@ enum CredentialError: LocalizedError {
 
 /// Reads credentials that other tools own. Never writes them back: both Anthropic
 /// and OpenAI rotate the refresh token on use, so refreshing here would invalidate
-/// the copy Claude Code / OpenCode hold and log the user out of their actual tools.
+/// the copy Claude Code / Hermes hold and log the user out of their actual tools.
 enum Credentials {
 
     // MARK: Claude Code
@@ -61,40 +61,55 @@ enum Credentials {
         return oauth["accessToken"] as? String
     }
 
-    // MARK: OpenCode-managed credentials
+    // MARK: Hermes-managed credentials
 
     struct OpenAICredentials {
         let accessToken: String
         let accountId: String
     }
 
+    /// Re-read on every poll so Hermes's own token refreshes are picked up for free.
     static func openAI() throws -> OpenAICredentials {
-        let openai = try openCodeAuth()["openai"] as? [String: Any]
-        guard let token = openai?["access"] as? String else {
-            throw CredentialError.missing("Codex not signed in via OpenCode")
-        }
-        return OpenAICredentials(
-            accessToken: token,
-            accountId: openai?["accountId"] as? String ?? ""
-        )
-    }
-
-    static func kimiKey() throws -> String {
-        let kimi = try openCodeAuth()["kimi-for-coding"] as? [String: Any]
-        guard let key = kimi?["key"] as? String else {
-            throw CredentialError.missing("Kimi key not found in OpenCode")
-        }
-        return key
-    }
-
-    /// Re-read on every poll so OpenCode's own token refreshes are picked up for free.
-    private static func openCodeAuth() throws -> [String: Any] {
-        let path = URL.homeDirectory.appending(path: ".local/share/opencode/auth.json")
+        let path = URL.homeDirectory.appending(path: ".hermes/auth.json")
         guard let data = try? Data(contentsOf: path),
             let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
-            throw CredentialError.missing("OpenCode auth.json unreadable")
+            throw CredentialError.missing("Hermes auth.json unreadable")
         }
-        return root
+        let pool = root["credential_pool"] as? [String: Any]
+        let entries = pool?["openai-codex"] as? [[String: Any]] ?? []
+        guard let token = entries.lazy.compactMap({ $0["access_token"] as? String }).first else {
+            throw CredentialError.missing("Codex not signed in via Hermes")
+        }
+        return OpenAICredentials(accessToken: token, accountId: chatGPTAccountId(token) ?? "")
+    }
+
+    /// Hermes stores no account id beside the token, but the token carries one: a
+    /// ChatGPT access token is a JWT with the id under OpenAI's auth claim.
+    private static func chatGPTAccountId(_ token: String) -> String? {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = parts[1].replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload),
+            let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let auth = claims["https://api.openai.com/auth"] as? [String: Any]
+        else { return nil }
+        return auth["chatgpt_account_id"] as? String
+    }
+
+    /// Hermes's credential pool holds only a fingerprint of the Kimi key; the key itself
+    /// is in the environment file Hermes loads it from.
+    static func kimiKey() throws -> String {
+        let path = URL.homeDirectory.appending(path: ".hermes/.env")
+        let prefix = "KIMI_API_KEY="
+        let lines = (try? String(contentsOf: path, encoding: .utf8))?.split(whereSeparator: \.isNewline) ?? []
+        guard let line = lines.first(where: { $0.hasPrefix(prefix) }) else {
+            throw CredentialError.missing("Kimi key not found in Hermes")
+        }
+        let key = line.dropFirst(prefix.count).trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
+        guard !key.isEmpty else { throw CredentialError.missing("Kimi key not found in Hermes") }
+        return key
     }
 }

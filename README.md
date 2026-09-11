@@ -33,11 +33,12 @@ Nothing is stored by this app and nothing is written back.
 
 - **Claude** — read from the login keychain via `/usr/bin/security`, the same call
   Claude Code makes. `~/.claude/.credentials.json` is used as a fallback.
-- **Codex and Kimi** — read from `~/.local/share/opencode/auth.json`.
+- **Codex and Kimi** — read from Hermes: the Codex token from `~/.hermes/auth.json`,
+  the Kimi key from `~/.hermes/.env`.
 
 Credentials are re-read on every poll. The app never refreshes a token, because
 Anthropic and OpenAI both rotate the refresh token when it is used: refreshing here
-would invalidate the copy Claude Code or OpenCode holds and sign you out of them.
+would invalidate the copy Claude Code or Hermes holds and sign you out of them.
 If a token has expired, the affected provider shows as unavailable until its own
 tool refreshes it. Providers fail independently.
 
