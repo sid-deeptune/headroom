@@ -139,72 +139,57 @@ func formatTokens(_ tokens: Int) -> String {
     return "\(tokens)"
 }
 
-/// Today's local activity for one provider, expandable.
+/// Today's local activity for one provider, as a two-by-two table.
 ///
-/// Collapsed it shows input and output — the tokens that track real work — with the
-/// cache figure subdued beneath them, because on any real day cache reads are two orders
-/// of magnitude larger and would otherwise be all you read. Beneath rather than beside,
-/// because a grid column is too narrow to hold all three on one line. Clicking opens the
-/// split.
+/// The two halves split the figures by what they mean. On the left are the tokens that
+/// track real work; on the right, subdued, the cache figures, which on any real day are
+/// two orders of magnitude larger and would otherwise be all you read.
+///
+/// Each half takes exactly half the provider's column, so the labels keep one left edge
+/// and the figures one right edge, and the table ends where the meters above it end.
+/// `Grid` would align the columns by measuring them, but a cell spanning the cost row
+/// left it short of the trailing edge.
 ///
 /// Deliberately says "would cost": every provider here is on a subscription, so this is
 /// the API value of the work, not money that was charged.
 struct SpendRow: View {
     let spend: Spend
-    @State private var expanded = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3 * panelScale) {
-            Button {
-                expanded.toggle()
-            } label: {
-                VStack(alignment: .leading, spacing: 2 * panelScale) {
-                    HStack(spacing: 4 * panelScale) {
-                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 7 * panelScale, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                        Text("today")
-                            .foregroundStyle(.tertiary)
-                        Text("\(formatTokens(spend.counts.input)) in · \(formatTokens(spend.counts.output)) out")
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("$\(spend.wouldCost, specifier: "%.2f")")
-                            .foregroundStyle(.secondary)
-                    }
-                    if !expanded {
-                        Text("\(formatTokens(spend.counts.cacheRead)) cached")
-                            .foregroundStyle(.quaternary)
-                            .padding(.leading, 11 * panelScale)
-                    }
-                }
-                .font(.panelCaption2())
-                .contentShape(.rect)
+        VStack(alignment: .leading, spacing: 2 * panelScale) {
+            HStack {
+                Text("today")
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                Text("$\(spend.wouldCost, specifier: "%.2f")")
+                    .foregroundStyle(.secondary)
             }
-            .buttonStyle(.plain)
+            row("in", spend.counts.input, "cache r", spend.counts.cacheRead)
+            row("out", spend.counts.output, "cache w", spend.counts.cacheWrite)
+        }
+        .font(.panelCaption2())
+        .help("What today's tokens would cost at API prices")
+    }
 
-            if expanded {
-                breakdown("Input", spend.counts.input, subdued: false)
-                breakdown("Output", spend.counts.output, subdued: false)
-                breakdown("Cache read", spend.counts.cacheRead, subdued: true)
-                breakdown("Cache write", spend.counts.cacheWrite, subdued: true)
-                Text("would cost at API prices")
-                    .font(.panelCaption2())
-                    .foregroundStyle(.quaternary)
-                    .padding(.leading, 11 * panelScale)
-            }
+    private func row(
+        _ work: String, _ workTokens: Int, _ cache: String, _ cacheTokens: Int
+    ) -> some View {
+        HStack(spacing: 8 * panelScale) {
+            half(work, formatTokens(workTokens), subdued: false)
+            half(cache, formatTokens(cacheTokens), subdued: true)
         }
     }
 
-    private func breakdown(_ label: String, _ tokens: Int, subdued: Bool) -> some View {
-        HStack {
+    private func half(_ label: String, _ value: String, subdued: Bool) -> some View {
+        HStack(spacing: 4 * panelScale) {
             Text(label)
-            Spacer()
-            Text(formatTokens(tokens))
+                .foregroundStyle(subdued ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.tertiary))
+            Spacer(minLength: 4 * panelScale)
+            Text(value)
                 .font(.panelCaption2(design: .monospaced))
+                .foregroundStyle(subdued ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.secondary))
         }
-        .font(.panelCaption2())
-        .foregroundStyle(subdued ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.secondary))
-        .padding(.leading, 11 * panelScale)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -299,7 +284,7 @@ struct HarnessSection: View {
                         VStack(spacing: 1 * panelScale) {
                             Text(total.formatted(.currency(code: "USD").precision(.fractionLength(0))))
                                 .font(.panelCaption(design: .monospaced).weight(.semibold))
-                            Text("7 days")
+                            Text("last 7 days")
                                 .font(.panelCaption2())
                                 .foregroundStyle(.tertiary)
                         }
@@ -390,6 +375,34 @@ enum PanelTab: String, CaseIterable {
     case models = "Models"
 }
 
+/// The tab switch, drawn rather than taken from `.pickerStyle(.segmented)`. The AppKit
+/// segmented control sizes itself by calling back into SwiftUI's own layout, and inside
+/// a hosting view that sizes the window from its content that call never settles: the
+/// app spun a core at 100% for as long as it ran, panel open or closed.
+struct TabSwitch: View {
+    @Binding var selection: PanelTab
+
+    var body: some View {
+        HStack(spacing: 2 * panelScale) {
+            ForEach(PanelTab.allCases, id: \.self) { tab in
+                Button { selection = tab } label: {
+                    Text(tab.rawValue)
+                        .font(.panelCaption())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 3 * panelScale)
+                        .background(
+                            selection == tab ? Color.primary.opacity(0.14) : .clear,
+                            in: RoundedRectangle(cornerRadius: 5 * panelScale))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2 * panelScale)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 7 * panelScale))
+    }
+}
+
 struct MenuView: View {
     @ObservedObject var store: UsageStore
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
@@ -408,36 +421,53 @@ struct MenuView: View {
     private let columnWidth: CGFloat = 216 * panelScale
     private let columnSpacing: CGFloat = 16 * panelScale
 
+    /// The rule between the two columns, and the space either side of it.
+    private var columnRule: CGFloat { columnSpacing * 2 + 1 }
+
+    /// Two providers to a row, in declaration order.
+    private var providerRows: [[Provider]] {
+        stride(from: 0, to: Provider.allCases.count, by: 2).map {
+            Array(Provider.allCases[$0..<min($0 + 2, Provider.allCases.count)])
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12 * panelScale) {
-            Picker("View", selection: $tab) {
-                ForEach(PanelTab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .onChange(of: tab) { onResize() }
+            TabSwitch(selection: $tab)
+                .onChange(of: tab) { onResize() }
 
             switch tab {
             case .providers:
                 // Two to a row, top-aligned: sections differ in height (Claude can show a
-                // per-model cap, a spend row can be expanded), and centring would misalign
-                // the headers across a row.
-                LazyVGrid(
-                    columns: Array(
-                        repeating: GridItem(.fixed(columnWidth), spacing: columnSpacing, alignment: .top),
-                        count: 2),
-                    alignment: .leading, spacing: 14 * panelScale
-                ) {
-                    ForEach(Provider.allCases, id: \.self) { provider in
-                        ProviderSection(
-                            provider: provider, snapshot: store.states[provider] ?? ProviderSnapshot(),
-                            spend: store.spend[provider],
-                            spendIsStale: store.staleSpend.contains(provider), now: now)
+                // per-model cap), and centring would misalign the headers across a row.
+                // A rule between the rows, because a provider's spend table otherwise runs
+                // straight into the next provider's name.
+                VStack(alignment: .leading, spacing: 8 * panelScale) {
+                    ForEach(Array(providerRows.enumerated()), id: \.offset) { index, row in
+                        if index > 0 { Divider() }
+                        HStack(alignment: .top, spacing: columnRule) {
+                            ForEach(row, id: \.self) { provider in
+                                ProviderSection(
+                                    provider: provider,
+                                    snapshot: store.states[provider] ?? ProviderSnapshot(),
+                                    spend: store.spend[provider],
+                                    spendIsStale: store.staleSpend.contains(provider), now: now
+                                )
+                                .frame(width: columnWidth, alignment: .topLeading)
+                            }
+                        }
                     }
+                }
+                // Drawn over the whole block rather than inside each row, so the rule
+                // between the columns is one line down the panel instead of one stub
+                // per row. The gap it sits in is centred, so the overlay is too.
+                .overlay(alignment: .center) {
+                    Rectangle().fill(.quaternary).frame(width: 1)
                 }
             case .models:
                 HStack(alignment: .top, spacing: columnSpacing) {
-                    ForEach(Harness.allCases, id: \.self) { harness in
+                    ForEach(Array(Harness.allCases.enumerated()), id: \.element) { column, harness in
+                        if column > 0 { Divider() }
                         HarnessSection(
                             harness: harness, models: store.models[harness],
                             isStale: store.staleModels.contains(harness)
@@ -473,7 +503,7 @@ struct MenuView: View {
             }
         }
         .padding(14 * panelScale)
-        .frame(width: columnWidth * 2 + columnSpacing + 28 * panelScale)
+        .frame(width: columnWidth * 2 + columnRule + 28 * panelScale)
         .onReceive(tick) { now = $0 }
     }
 }
