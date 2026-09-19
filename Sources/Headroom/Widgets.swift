@@ -238,7 +238,7 @@ struct CompactHarnessSection: View {
                         slices.isEmpty
                             ? (models == nil ? "Loading…" : "No work in the last 7 days")
                             : total.formatted(.currency(code: "USD").precision(.fractionLength(0)))
-                                + " · 7 days"
+                                + " · last 7 days"
                     )
                     .font(.panelCaption2())
                     .foregroundStyle(.tertiary)

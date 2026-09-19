@@ -12,7 +12,7 @@ final class UsageStore: ObservableObject {
     /// Providers whose last read failed, so their figure is the last known one rather
     /// than today's. The menu dims those rows.
     @Published private(set) var staleSpend: Set<Provider> = []
-    /// The last `modelWindow` of work by model, per harness. Absent until the first read.
+    /// The last `modelWindowDays` of work by model, per harness. Absent until the first read.
     @Published private(set) var models: [Harness: [String: Spend]] = [:]
     @Published private(set) var staleModels: Set<Harness> = []
 
@@ -30,10 +30,11 @@ final class UsageStore: ObservableObject {
     /// Stops a burst of clicks from undoing the point of the slow poll.
     private let manualCooldown: TimeInterval = 30
 
-    /// Spend comes off local files rather than an endpoint, so it can poll far more
-    /// often than the network. Not faster than this, though: a heavy day leaves tens of
-    /// megabytes of transcript to re-parse on every pass.
-    private let spendInterval: TimeInterval = 300
+    /// Usage comes off local files rather than an endpoint, so it can poll far more
+    /// often than the network. Not faster than this, though: the first pass after launch
+    /// still parses the whole window, and a session being written is parsed again each
+    /// pass.
+    private let usageInterval: TimeInterval = 300
 
     init() {
         for provider in Provider.allCases { states[provider] = ProviderSnapshot() }
@@ -49,81 +50,73 @@ final class UsageStore: ObservableObject {
         Task {
             await Pricing.refreshIfStale()
             while !Task.isCancelled {
-                await readSpend()
-                try? await Task.sleep(for: .seconds(spendInterval))
+                await readUsage()
+                try? await Task.sleep(for: .seconds(usageInterval))
             }
         }
     }
 
-    /// Reads every tool's local log. Parsing runs off the main actor because the
-    /// transcripts can run to tens of megabytes.
-    private func readSpend() async {
-        let since = Calendar.current.startOfDay(for: Date())
+    /// Reads every tool's local log once and slices it two ways: today for the Providers
+    /// tab, the whole window for the Models tab. One pass rather than two, because the
+    /// readers bucket by day and both tabs are sums of those buckets.
+    ///
+    /// Parsing runs off the main actor because the transcripts can run to tens of
+    /// megabytes on the first pass.
+    private func readUsage() async {
+        let today = Calendar.current.startOfDay(for: Date())
+        let since = windowStart(days: modelWindowDays)
         let readings = await Task.detached {
-            spendReaders.map { ($0.providers, $0.read(since: since)) }
+            spendReaders.map { ($0.providers, $0.harness, $0.read(since: since)) }
         }.value
 
-        var total: [Provider: Spend] = [:]
-        var failed: Set<Provider> = []
-        for (covered, reading) in readings {
+        var todaySpend: [Provider: Spend] = [:]
+        var windowModels: [Harness: [String: Spend]] = [:]
+        var failedProviders: Set<Provider> = []
+        var failedHarnesses: Set<Harness> = []
+
+        for (covered, harness, reading) in readings {
             // A failed reader taints every provider it speaks for, including ones another
-            // reader also reports: half a figure looks like a quiet day rather than a
-            // broken read.
+            // reader also reports, and its whole harness: half a figure looks like a quiet
+            // day rather than a broken read.
             guard !reading.failed else {
-                failed.formUnion(covered)
+                failedProviders.formUnion(covered)
+                failedHarnesses.insert(harness)
                 continue
             }
-            for (provider, spend) in reading.spend {
-                total[provider] = (total[provider] ?? Spend()) + spend
+            for (day, bucket) in reading.days {
+                if day == today {
+                    for (provider, spend) in bucket.spend {
+                        todaySpend[provider] = (todaySpend[provider] ?? Spend()) + spend
+                    }
+                }
+                windowModels[harness, default: [:]].merge(bucket.models) { $0 + $1 }
             }
         }
 
         // Written, not merged, wherever the read was sound: a provider with no rows did
         // nothing today, and its row has to go rather than carry yesterday forward. Where
         // the read failed the last known figure stays, marked stale.
-        for provider in Provider.allCases where !failed.contains(provider) {
-            spend[provider] = total[provider]
+        for provider in Provider.allCases where !failedProviders.contains(provider) {
+            spend[provider] = todaySpend[provider]
         }
-        staleSpend = failed.intersection(spend.keys)
-        publish(.providers)
+        staleSpend = failedProviders.intersection(spend.keys)
+
+        for harness in Harness.allCases where !failedHarnesses.contains(harness) {
+            models[harness] = windowModels[harness] ?? [:]
+        }
+        staleModels = failedHarnesses.intersection(models.keys)
+        publish()
     }
 
-    /// A week of transcripts is far more to parse than a day, so this runs with the slow
-    /// network poll rather than the spend one. A split over seven days hardly moves in
-    /// fifteen minutes.
-    private func readModels() async {
-        let since = Date().addingTimeInterval(-modelWindow)
-        let readings = await Task.detached {
-            spendReaders.map { ($0.harness, $0.read(since: since)) }
-        }.value
-
-        var total: [Harness: [String: Spend]] = [:]
-        var failed: Set<Harness> = []
-        for (harness, reading) in readings {
-            // As with spend: one failed reader taints its whole harness.
-            guard !reading.failed else {
-                failed.insert(harness)
-                continue
-            }
-            total[harness, default: [:]].merge(reading.models) { $0 + $1 }
-        }
-
-        for harness in Harness.allCases where !failed.contains(harness) {
-            models[harness] = total[harness] ?? [:]
-        }
-        staleModels = failed.intersection(models.keys)
-        publish(.models)
-    }
-
-    /// Saves what the panel shows for the desktop widgets, then reloads only the widget
-    /// whose figures this read changed: WidgetKit budgets how often a widget reloads.
-    /// A refresh reaches the Providers widget through the spend read that ends it.
-    private func publish(_ tab: PanelTab) {
+    /// Saves what the panel shows for the desktop widgets, then reloads both of them.
+    /// Both, because one read now feeds both tabs. WidgetKit budgets how often a widget
+    /// reloads, which is why this is tied to the read rather than to the clock.
+    private func publish() {
         PanelSnapshot(
             states: states, updatedAt: updatedAt, spend: spend, staleSpend: staleSpend,
             models: models, staleModels: staleModels
         ).write()
-        WidgetCenter.shared.reloadTimelines(ofKind: tab.rawValue)
+        for tab in PanelTab.allCases { WidgetCenter.shared.reloadTimelines(ofKind: tab.rawValue) }
     }
 
     /// Drives the refresh button's enabled state, so a click that would be dropped is
@@ -170,8 +163,7 @@ final class UsageStore: ObservableObject {
 
         // The button is what you press when a figure looks wrong, and a stale spend row
         // is the likeliest wrong figure on screen.
-        await readSpend()
-        await readModels()
+        await readUsage()
     }
 
     /// Retries rate limiting and server errors rather than waiting out the poll

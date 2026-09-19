@@ -246,25 +246,36 @@ private func probe() -> Never {
             }
         }
 
-        let since = Calendar.current.startOfDay(for: Date())
+        let today = Calendar.current.startOfDay(for: Date())
+        let since = windowStart(days: modelWindowDays)
         for reader in spendReaders {
-            for (provider, spend) in reader.read(since: since).spend {
-                let counts = spend.counts
-                print(
-                    "\(provider.rawValue) today  in \(counts.input)  out \(counts.output)  "
-                        + "cache r \(counts.cacheRead) w \(counts.cacheWrite)  "
-                        + String(format: "$%.2f", spend.wouldCost))
-            }
-        }
+            // Twice, because the second pass is the one the cache serves — and the gap
+            // between the two timings is the whole point of it.
+            for pass in 1...2 {
+                let started = Date()
+                let days = reader.read(since: since).days
+                let elapsed = Date().timeIntervalSince(started)
+                guard pass == 2 else {
+                    print("\(reader.harness.rawValue) cold read " + String(format: "%.1fs", elapsed))
+                    continue
+                }
+                print("\(reader.harness.rawValue) cached read " + String(format: "%.2fs", elapsed))
 
-        let week = Date().addingTimeInterval(-modelWindow)
-        for reader in spendReaders {
-            let started = Date()
-            let models = reader.read(since: week).models
-            for (model, spend) in models.sorted(by: { $0.value.wouldCost > $1.value.wouldCost }) {
-                print("\(reader.harness.rawValue) 7d  \(model)  " + String(format: "$%.2f", spend.wouldCost))
+                for (provider, spend) in days[today]?.spend ?? [:] {
+                    let counts = spend.counts
+                    print(
+                        "  \(provider.rawValue) today  in \(counts.input)  out \(counts.output)  "
+                            + "cache r \(counts.cacheRead) w \(counts.cacheWrite)  "
+                            + String(format: "$%.2f", spend.wouldCost))
+                }
+
+                let models = days.values.reduce(into: [String: Spend]()) {
+                    $0.merge($1.models) { $0 + $1 }
+                }
+                for (model, spend) in models.sorted(by: { $0.value.wouldCost > $1.value.wouldCost }) {
+                    print("  \(reader.harness.rawValue) 7d  \(model)  " + String(format: "$%.2f", spend.wouldCost))
+                }
             }
-            print("\(reader.harness.rawValue) 7d read in " + String(format: "%.1fs", Date().timeIntervalSince(started)))
         }
         done.signal()
     }

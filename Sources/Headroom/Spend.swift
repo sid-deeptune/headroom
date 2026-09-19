@@ -33,15 +33,30 @@ struct Spend: Codable {
     }
 }
 
-/// What one pass over a tool's records saw.
+/// One local day's work, both ways the panel splits it.
+struct DaySpend {
+    var spend: [Provider: Spend] = [:]
+    /// The same work keyed by `canonicalModel`, for the Models tab.
+    var models: [String: Spend] = [:]
+
+    static func + (lhs: DaySpend, rhs: DaySpend) -> DaySpend {
+        DaySpend(
+            spend: lhs.spend.merging(rhs.spend) { $0 + $1 },
+            models: lhs.models.merging(rhs.models) { $0 + $1 })
+    }
+}
+
+/// What one pass over a tool's records saw, in buckets of one local day.
+///
+/// Days rather than a single total, so one pass serves both tabs: the Providers tab
+/// sums today alone, the Models tab sums the whole window.
 ///
 /// `failed` separates "the source could not be read" from "the source was read and it
 /// says nothing happened today". Without that split a quiet provider keeps yesterday's
 /// figures under a label that says today.
 struct SpendReading {
-    var spend: [Provider: Spend] = [:]
-    /// The same work keyed by `canonicalModel`, for the Models tab.
-    var models: [String: Spend] = [:]
+    /// Keyed by the start of the local day. Days before the requested start are absent.
+    var days: [Date: DaySpend] = [:]
     var failed = false
 }
 
@@ -60,6 +75,7 @@ protocol SpendReader: Sendable {
 
     var harness: Harness { get }
 
+    /// Every day from `since` onward, where `since` is the start of a local day.
     func read(since: Date) -> SpendReading
 }
 
@@ -68,8 +84,19 @@ let spendReaders: [SpendReader] = [
     ClaudeLogReader(account: .deeptune), ClaudeLogReader(account: .mercor), HermesReader(),
 ]
 
-/// The Models tab looks back as far as the longest quota window.
-let modelWindow: TimeInterval = 7 * 86400
+/// The Models tab covers today and the six local days before it.
+///
+/// Whole days rather than a rolling week: a slice would otherwise shrink between polls
+/// as a session aged past the edge, and whole days let the per-file cache serve the
+/// window as a plain sum of buckets.
+let modelWindowDays = 7
+
+/// The start of the oldest local day a window of `days` covers, today included.
+func windowStart(days: Int, now: Date = Date()) -> Date {
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: now)
+    return calendar.date(byAdding: .day, value: -(days - 1), to: today) ?? today
+}
 
 /// One name per model, so a variant neither splits a model into two slices nor misses
 /// its price. `claude-opus-5[1m]` and `gpt-5.6-sol-900k` are the base model with a

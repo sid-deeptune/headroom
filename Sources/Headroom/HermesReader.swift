@@ -17,15 +17,20 @@ struct HermesReader: SpendReader {
     /// Hermes sessions last hours, not days, so that barely moves the window's edge.
     /// `last_seen` is seconds since the epoch. Reasoning tokens bill at the output rate,
     /// so they are folded into output here.
+    ///
+    /// SQLite buckets the day rather than Swift, because the grouping has to happen
+    /// inside the aggregate. It yields "2026-09-19", which `localDay` turns back into
+    /// that day's local midnight.
     private static let query = """
         SELECT billing_provider, model,
+               date(last_seen, 'unixepoch', 'localtime'),
                SUM(input_tokens),
                SUM(output_tokens) + SUM(reasoning_tokens),
                SUM(cache_read_tokens),
                SUM(cache_write_tokens)
         FROM session_model_usage
         WHERE last_seen >= ?
-        GROUP BY 1, 2
+        GROUP BY 1, 2, 3
         """
 
     func read(since: Date) -> SpendReading {
@@ -53,18 +58,21 @@ struct HermesReader: SpendReader {
         while step == SQLITE_ROW {
             defer { step = sqlite3_step(statement) }
             guard let billing = text(statement, 0), let (provider, pricedAs) = map(billing),
-                let model = text(statement, 1).map(canonicalModel)
+                let model = text(statement, 1).map(canonicalModel),
+                let day = text(statement, 2).flatMap(localDay.date(from:))
             else { continue }
             let tokens = TokenCounts(
-                input: Int(sqlite3_column_int64(statement, 2)),
-                output: Int(sqlite3_column_int64(statement, 3)),
-                cacheRead: Int(sqlite3_column_int64(statement, 4)),
-                cacheWrite: Int(sqlite3_column_int64(statement, 5)))
+                input: Int(sqlite3_column_int64(statement, 3)),
+                output: Int(sqlite3_column_int64(statement, 4)),
+                cacheRead: Int(sqlite3_column_int64(statement, 5)),
+                cacheWrite: Int(sqlite3_column_int64(statement, 6)))
 
             let spend = Spend(
                 counts: tokens, wouldCost: Pricing.cost(tokens, provider: pricedAs, model: model))
-            reading.spend[provider] = (reading.spend[provider] ?? Spend()) + spend
-            reading.models[model] = (reading.models[model] ?? Spend()) + spend
+            var bucket = reading.days[day] ?? DaySpend()
+            bucket.spend[provider] = (bucket.spend[provider] ?? Spend()) + spend
+            bucket.models[model] = (bucket.models[model] ?? Spend()) + spend
+            reading.days[day] = bucket
         }
 
         // A run that stopped short — the database busy under a live Hermes session —
@@ -91,3 +99,12 @@ struct HermesReader: SpendReader {
         return String(cString: value)
     }
 }
+
+/// Turns SQLite's "2026-09-19" back into that day's local midnight. Built once, like
+/// the ISO formatters, since it is called per row.
+private let localDay: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    return formatter
+}()
