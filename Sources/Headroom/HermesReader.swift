@@ -67,8 +67,9 @@ struct HermesReader: SpendReader {
                 cacheRead: Int(sqlite3_column_int64(statement, 5)),
                 cacheWrite: Int(sqlite3_column_int64(statement, 6)))
 
+            let cost = Pricing.cost(tokens, provider: pricedAs, model: model)
             let spend = Spend(
-                counts: tokens, wouldCost: Pricing.cost(tokens, provider: pricedAs, model: model))
+                counts: tokens, wouldCost: cost ?? 0, priceUnavailable: cost == nil)
             var bucket = reading.days[day] ?? DaySpend()
             bucket.spend[provider] = (bucket.spend[provider] ?? Spend()) + spend
             bucket.models[model] = (bucket.models[model] ?? Spend()) + spend

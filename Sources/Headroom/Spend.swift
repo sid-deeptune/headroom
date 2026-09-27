@@ -27,9 +27,14 @@ struct TokenCounts: Codable {
 struct Spend: Codable {
     var counts = TokenCounts()
     var wouldCost: Double = 0
+    // Optional so snapshots from older builds still decode.
+    var priceUnavailable: Bool? = nil
+
+    var isIncomplete: Bool { priceUnavailable == true }
 
     static func + (lhs: Spend, rhs: Spend) -> Spend {
-        Spend(counts: lhs.counts + rhs.counts, wouldCost: lhs.wouldCost + rhs.wouldCost)
+        Spend(counts: lhs.counts + rhs.counts, wouldCost: lhs.wouldCost + rhs.wouldCost,
+              priceUnavailable: lhs.isIncomplete || rhs.isIncomplete)
     }
 }
 

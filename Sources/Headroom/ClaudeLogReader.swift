@@ -29,9 +29,10 @@ struct ClaudeLogReader: SpendReader {
             for (day, byModel) in cache.days(of: file) where day >= since {
                 var bucket = reading.days[day] ?? DaySpend()
                 for (model, counts) in byModel {
+                    let cost = Pricing.cost(counts, provider: "anthropic", model: model)
                     let spend = Spend(
                         counts: counts,
-                        wouldCost: Pricing.cost(counts, provider: "anthropic", model: model))
+                        wouldCost: cost ?? 0, priceUnavailable: cost == nil)
                     bucket.spend[account.provider] =
                         (bucket.spend[account.provider] ?? Spend()) + spend
                     bucket.models[model] = (bucket.models[model] ?? Spend()) + spend

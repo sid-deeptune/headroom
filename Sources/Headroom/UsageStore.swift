@@ -48,8 +48,8 @@ final class UsageStore: ObservableObject {
             }
         }
         Task {
-            await Pricing.refreshIfStale()
             while !Task.isCancelled {
+                await Pricing.refreshIfStale()
                 await readUsage()
                 try? await Task.sleep(for: .seconds(usageInterval))
             }
@@ -129,10 +129,12 @@ final class UsageStore: ObservableObject {
 
     /// Providers are fetched concurrently and fail independently — one signed-out
     /// provider must not blank out the others.
-    func refresh() async {
+    func refresh(forcePrices: Bool = false) async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
+
+        await Pricing.refreshIfStale(force: forcePrices)
 
         await withTaskGroup(of: (Provider, Result<[Window], Error>).self) { group in
             for provider in providers {

@@ -161,14 +161,16 @@ struct SpendRow: View {
                 Text("today")
                     .foregroundStyle(.tertiary)
                 Spacer()
-                Text("$\(spend.wouldCost, specifier: "%.2f")")
+                Text(spend.isIncomplete
+                     ? String(format: "$%.2f · incomplete", spend.wouldCost)
+                     : String(format: "$%.2f", spend.wouldCost))
                     .foregroundStyle(.secondary)
             }
             row("in", spend.counts.input, "cache r", spend.counts.cacheRead)
             row("out", spend.counts.output, "cache w", spend.counts.cacheWrite)
         }
         .font(.panelCaption2())
-        .help("What today's tokens would cost at API prices")
+        .help("Estimated API value at base rates, not subscription charges. Incomplete means some model prices are unavailable.")
     }
 
     private func row(
@@ -264,16 +266,30 @@ struct HarnessSection: View {
             + [Slice(name: "Other", cost: ranked.dropFirst(kept).reduce(0) { $0 + $1.cost })]
     }
 
+    static func unpriced(_ models: [String: Spend]?) -> [String] {
+        (models ?? [:]).filter { $0.value.isIncomplete }.keys.sorted()
+    }
+
+    static func missingPrices(_ models: [String: Spend]?) -> some View {
+        ForEach(unpriced(models), id: \.self) { model in
+            Text("\(model) · price unavailable")
+                .font(.panelCaption2())
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     var body: some View {
         let slices = Self.slices(of: models)
         let total = slices.reduce(0) { $0 + $1.cost }
+        let incomplete = !Self.unpriced(models).isEmpty
 
         VStack(alignment: .leading, spacing: 8 * panelScale) {
             Text(harness.rawValue)
                 .font(.panelCaption().weight(.semibold))
 
             if slices.isEmpty {
-                Text(models == nil ? "Loading…" : "No work in the last 7 days")
+                Text(models == nil ? "Loading…" : incomplete ? "API estimate incomplete" : "No work in the last 7 days")
                     .font(.panelCaption2())
                     .foregroundStyle(.tertiary)
             } else {
@@ -284,7 +300,7 @@ struct HarnessSection: View {
                         VStack(spacing: 1 * panelScale) {
                             Text(total.formatted(.currency(code: "USD").precision(.fractionLength(0))))
                                 .font(.panelCaption(design: .monospaced).weight(.semibold))
-                            Text("last 7 days")
+                            Text(incomplete ? "incomplete · 7 days" : "last 7 days")
                                 .font(.panelCaption2())
                                 .foregroundStyle(.tertiary)
                         }
@@ -297,7 +313,9 @@ struct HarnessSection: View {
                 }
                 .opacity(isStale ? 0.45 : 1)
             }
+            Self.missingPrices(models)
         }
+        .help("Estimated API value at base rates, not subscription charges. Percentages cover priced usage only.")
     }
 
     /// The donut and the legend are static so the medium widget, which lays them out its
@@ -348,7 +366,7 @@ struct RefreshButton: View {
 
     var body: some View {
         Button {
-            Task { await store.refresh() }
+            Task { await store.refresh(forcePrices: true) }
         } label: {
             Group {
                 if store.isRefreshing {

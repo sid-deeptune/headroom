@@ -153,7 +153,9 @@ struct WidgetProviderSection: View {
                     Text("· \(formatTokens(spend.counts.cacheRead)) cached")
                         .foregroundStyle(.quaternary)
                     Spacer()
-                    Text("$\(spend.wouldCost, specifier: "%.2f")")
+                    Text(spend.isIncomplete
+                         ? String(format: "$%.2f · incomplete", spend.wouldCost)
+                         : String(format: "$%.2f", spend.wouldCost))
                         .foregroundStyle(.secondary)
                 }
                 .font(.panelCaption2())
@@ -224,6 +226,7 @@ struct CompactHarnessSection: View {
     var body: some View {
         let slices = HarnessSection.slices(of: models)
         let total = slices.reduce(0) { $0 + $1.cost }
+        let incomplete = !HarnessSection.unpriced(models).isEmpty
 
         VStack(alignment: .leading, spacing: 5 * panelScale) {
             HStack(spacing: 6 * panelScale) {
@@ -236,15 +239,16 @@ struct CompactHarnessSection: View {
                         .font(.panelCaption().weight(.semibold))
                     Text(
                         slices.isEmpty
-                            ? (models == nil ? "Loading…" : "No work in the last 7 days")
+                            ? (models == nil ? "Loading…" : incomplete ? "API estimate incomplete" : "No work in the last 7 days")
                             : total.formatted(.currency(code: "USD").precision(.fractionLength(0)))
-                                + " · last 7 days"
+                                + (incomplete ? " · incomplete · 7 days" : " · last 7 days")
                     )
                     .font(.panelCaption2())
                     .foregroundStyle(.tertiary)
                 }
             }
             HarnessSection.legend(slices)
+            HarnessSection.missingPrices(models)
         }
         .opacity(isStale ? 0.45 : 1)
     }
