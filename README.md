@@ -33,12 +33,14 @@ Nothing is stored by this app and nothing is written back.
 
 - **Claude** — read from the login keychain via `/usr/bin/security`, the same call
   Claude Code makes. `~/.claude/.credentials.json` is used as a fallback.
-- **Codex and Kimi** — read from Hermes: the Codex token from `~/.hermes/auth.json`,
-  the Kimi key from `~/.hermes/.env`.
+- **Codex and Kimi** — asked of pi with `pi auth check --provider <id> --credentials`:
+  `openai-codex` for Codex, `kimi-coding` for Kimi. pi refreshes its own tokens under
+  its own lock, so the token is always current. Codex needs pi's `openai-codex` (legacy)
+  login even if you work through `openai`: only that token can read the usage endpoint.
 
-Credentials are re-read on every poll. The app never refreshes a token, because
+Credentials are re-read on every poll. The app never refreshes a token itself, because
 Anthropic and OpenAI both rotate the refresh token when it is used: refreshing here
-would invalidate the copy Claude Code or Hermes holds and sign you out of them.
+would invalidate the copy Claude Code or pi holds and sign you out of them.
 If a token has expired, the affected provider shows as unavailable until its own
 tool refreshes it. Providers fail independently.
 

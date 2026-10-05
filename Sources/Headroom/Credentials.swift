@@ -12,7 +12,7 @@ enum CredentialError: LocalizedError {
 
 /// Reads credentials that other tools own. Never writes them back: both Anthropic
 /// and OpenAI rotate the refresh token on use, so refreshing here would invalidate
-/// the copy Claude Code / Hermes hold and log the user out of their actual tools.
+/// the copy Claude Code / pi hold and log the user out of their actual tools.
 enum Credentials {
 
     // MARK: Claude Code
@@ -61,30 +61,21 @@ enum Credentials {
         return oauth["accessToken"] as? String
     }
 
-    // MARK: Hermes-managed credentials
+    // MARK: pi-managed credentials
 
     struct OpenAICredentials {
         let accessToken: String
         let accountId: String
     }
 
-    /// Re-read on every poll so Hermes's own token refreshes are picked up for free.
+    /// pi's legacy `openai-codex` login, not its `openai` one: only the Codex client's
+    /// token is accepted by the usage endpoint, and both draw on the same subscription.
     static func openAI() throws -> OpenAICredentials {
-        let path = URL.homeDirectory.appending(path: ".hermes/auth.json")
-        guard let data = try? Data(contentsOf: path),
-            let root = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else {
-            throw CredentialError.missing("Hermes auth.json unreadable")
-        }
-        let pool = root["credential_pool"] as? [String: Any]
-        let entries = pool?["openai-codex"] as? [[String: Any]] ?? []
-        guard let token = entries.lazy.compactMap({ $0["access_token"] as? String }).first else {
-            throw CredentialError.missing("Codex not signed in via Hermes")
-        }
+        let token = try piToken("openai-codex")
         return OpenAICredentials(accessToken: token, accountId: chatGPTAccountId(token) ?? "")
     }
 
-    /// Hermes stores no account id beside the token, but the token carries one: a
+    /// pi stores no account id beside the token, but the token carries one: a
     /// ChatGPT access token is a JWT with the id under OpenAI's auth claim.
     private static func chatGPTAccountId(_ token: String) -> String? {
         let parts = token.split(separator: ".")
@@ -99,17 +90,31 @@ enum Credentials {
         return auth["chatgpt_account_id"] as? String
     }
 
-    /// Hermes's credential pool holds only a fingerprint of the Kimi key; the key itself
-    /// is in the environment file Hermes loads it from.
-    static func kimiKey() throws -> String {
-        let path = URL.homeDirectory.appending(path: ".hermes/.env")
-        let prefix = "KIMI_API_KEY="
-        let lines = (try? String(contentsOf: path, encoding: .utf8))?.split(whereSeparator: \.isNewline) ?? []
-        guard let line = lines.first(where: { $0.hasPrefix(prefix) }) else {
-            throw CredentialError.missing("Kimi key not found in Hermes")
+    static func kimiKey() throws -> String { try piToken("kimi-coding") }
+
+    /// Asks pi for the token rather than reading `~/.pi/agent/auth.json`: pi's access
+    /// tokens last an hour or less and it refreshes them only when asked, under its own
+    /// lock on that file. So pi does the rotating, and nothing here writes it back.
+    private static func piToken(_ provider: String) throws -> String {
+        let process = Process()
+        process.executableURL = URL(filePath: "/opt/homebrew/bin/pi")
+        process.arguments = ["auth", "check", "--provider", provider, "--json", "--credentials"]
+        // pi is a Node script, and a menu bar app's PATH has no Homebrew in it.
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = "/opt/homebrew/bin:/usr/bin:/bin"
+        process.environment = environment
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+            let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+            let token = root["credentials"] as? String, !token.isEmpty
+        else {
+            throw CredentialError.missing("\(provider) not signed in to pi")
         }
-        let key = line.dropFirst(prefix.count).trimmingCharacters(in: CharacterSet(charactersIn: "\"' "))
-        guard !key.isEmpty else { throw CredentialError.missing("Kimi key not found in Hermes") }
-        return key
+        return token
     }
 }
