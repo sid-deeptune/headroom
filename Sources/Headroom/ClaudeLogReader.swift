@@ -154,7 +154,9 @@ private func parseTranscript(_ file: URL) -> [Date: [String: TokenCounts]] {
             input: usage["input_tokens"] as? Int ?? 0,
             output: usage["output_tokens"] as? Int ?? 0,
             cacheRead: usage["cache_read_input_tokens"] as? Int ?? 0,
-            cacheWrite: usage["cache_creation_input_tokens"] as? Int ?? 0)
+            cacheWrite: usage["cache_creation_input_tokens"] as? Int ?? 0,
+            cacheWrite1h: (usage["cache_creation"] as? [String: Any])?["ephemeral_1h_input_tokens"]
+                as? Int ?? 0)
 
         if let prior = best[key], prior.counts.output >= counts.output { return }
         best[key] = (calendar.startOfDay(for: timestamp), model, counts)

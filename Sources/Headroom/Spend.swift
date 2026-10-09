@@ -8,13 +8,20 @@ struct TokenCounts: Codable {
     var output = 0
     var cacheRead = 0
     var cacheWrite = 0
+    /// The part of `cacheWrite` Claude cached for an hour, which is priced higher. Already
+    /// inside `cacheWrite`, so it is not added to `total`; not encoded, since the snapshot
+    /// carries the cost.
+    var cacheWrite1h = 0
+
+    private enum CodingKeys: String, CodingKey { case input, output, cacheRead, cacheWrite }
 
     var total: Int { input + output + cacheRead + cacheWrite }
 
     static func + (lhs: TokenCounts, rhs: TokenCounts) -> TokenCounts {
         TokenCounts(
             input: lhs.input + rhs.input, output: lhs.output + rhs.output,
-            cacheRead: lhs.cacheRead + rhs.cacheRead, cacheWrite: lhs.cacheWrite + rhs.cacheWrite)
+            cacheRead: lhs.cacheRead + rhs.cacheRead, cacheWrite: lhs.cacheWrite + rhs.cacheWrite,
+            cacheWrite1h: lhs.cacheWrite1h + rhs.cacheWrite1h)
     }
 }
 

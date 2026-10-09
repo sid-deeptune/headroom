@@ -43,7 +43,10 @@ enum Pricing {
         return (Double(counts.input) * price.input
             + Double(counts.output) * price.output
             + Double(counts.cacheRead) * price.cacheRead
-            + Double(counts.cacheWrite) * price.cacheWrite) / 1_000_000
+            + Double(counts.cacheWrite - counts.cacheWrite1h) * price.cacheWrite
+            // models.dev lists only the 5-minute write price; Anthropic charges a 1-hour
+            // write at 2x input.
+            + Double(counts.cacheWrite1h) * 2 * price.input) / 1_000_000
     }
 
     /// Checked during usage polling; manual refresh bypasses the daily age limit.
